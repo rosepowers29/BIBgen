@@ -19,8 +19,8 @@ dependencies = [
 	"scipy",
 	"sklearn",
 	"matplotlib",
-    "torch",
-    "torchvision"
+    "torch==2.7.1+cu118",
+    "torchvision",
 ]
 
 [dependency-groups]
