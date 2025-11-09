@@ -19,6 +19,9 @@ dependencies = [
 	"scipy",
 	"sklearn",
 	"matplotlib",
+	"pyLCIO",
+	"h5py",
+	"optparse",
 ]
 
 [dependency-groups]
