@@ -21,7 +21,7 @@ dependencies = [
 	"matplotlib",
 	"pyLCIO",
 	"h5py",
-	"optparse",
+	"argparse",
 ]
 
 [dependency-groups]
