@@ -1,1 +1,2 @@
-from autoencoder import *
+from .autoencoder import *
+from .diffusion import *

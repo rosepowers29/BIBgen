@@ -39,5 +39,5 @@ Encoder : TypeAlias = DenseEncoder
 
 class Decoder(nn.Module):
     def __init__(self, encoder : Encoder):
-        # TODO
+        pass
         
