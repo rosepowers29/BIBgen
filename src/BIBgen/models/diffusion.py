@@ -82,6 +82,12 @@ class VarianceHead(nn.Module):
     SP_BETA = 1.0
     SP_THRESH = 20.0
 
+    @staticmethod
+    def softplus_inverse(y, beta, threshold):
+        inv = (1.0 / beta) * torch.log(torch.expm1(beta * y))
+        inv = torch.where(beta * y > threshold, y, inv)
+        return inv
+
     def __init__(self, n_timesteps : int, initial_variances : torch.Tensor | None = None):
         """
         Initializer for learned variance head module.
@@ -112,11 +118,7 @@ class VarianceHead(nn.Module):
         if len(initial_variances) != n_timesteps:
             raise ValueError("initial_variances must have size n_timesteps")
 
-        # Inverse Softplus
-        initial_values = torch.where(initial_variances < self.SP_THRESH, 
-            torch.log(torch.exp(self.SP_BETA * initial_variances) - 1) / self.SP_BETA,
-            initial_variances
-        )
+        initial_values = self.softplus_inverse(initial_variances, self.SP_BETA, self.SP_THRESH)
 
         self.varhead_lookup_table = nn.Parameter(data=initial_values)
         self.varhead_activation = nn.Softplus(beta=self.SP_BETA, threshold=self.SP_THRESH)
