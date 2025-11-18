@@ -19,12 +19,12 @@ def test_FourierEncoding():
     assert result.size() == torch.Size([64, 16])
     assert result.detach().numpy() == pytest.approx(expected_result, abs=1e-6)
 
-def test_VarianceHead():
+def test_VarianceTower():
     initial_variances = torch.rand(1000)
-    variance_head = VarianceHead(1000, initial_variances)
+    variance_tower = VarianceTower(1000, initial_variances)
     
     taus = torch.randint(1000, size=(100,))
-    result = variance_head(taus)
+    result = variance_tower(taus)
     expected_result = initial_variances[taus]
     
     assert result.size() == torch.Size([100])

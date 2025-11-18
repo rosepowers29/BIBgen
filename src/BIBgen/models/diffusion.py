@@ -1,4 +1,5 @@
 from typing import Callable, Collection
+from collections import OrderedDict
 
 import numpy as np
 import torch
@@ -21,7 +22,7 @@ class FourierEncoding(nn.Module):
         initial_frequencies : torch.Tensor, optional
             Initial values to initiate learnable frequencies. Size must be half of `dimension`
             If not provided, `0.5**torch.linspace(1, 16, dimension)` is used to initialize.
-        learned : bool
+        learned : bool, optional
             To toggle to hard-coded frequencies. Currently not supported.
 
         Returns
@@ -65,12 +66,12 @@ class FourierEncoding(nn.Module):
         ----------
         x : torch.Tensor
             Tensor of scalar inputs to be encoded in fourier vector representation,
-            with dimension `(n_batch,)`
+            with dimension `(n_members,)`
 
         Returns
         -------
         x_fourier : torch.Tensor
-            Tensor of fourier vector representation with dimension `(n_batch, dimension)`
+            Tensor of fourier vector representation with dimension `(n_members, dimension)`
         """
         frequencies = 2 * np.pi * self.fourier_activation(self.fourier_table)
         thetas = torch.outer(x, frequencies)
@@ -78,7 +79,7 @@ class FourierEncoding(nn.Module):
         cos_elems = torch.cos(thetas)
         return torch.cat((sin_elems, cos_elems), dim=1)
 
-class VarianceHead(nn.Module):
+class VarianceTower(nn.Module):
     SP_BETA = 1.0
     SP_THRESH = 20.0
 
@@ -90,7 +91,7 @@ class VarianceHead(nn.Module):
 
     def __init__(self, n_timesteps : int, initial_variances : torch.Tensor | None = None):
         """
-        Initializer for learned variance head module.
+        Initializer for learned variance tower module.
         Predicts the variance for all features (assumed to be the same)
         for every time step during the diffusion process.
 
@@ -104,7 +105,7 @@ class VarianceHead(nn.Module):
 
         Returns
         -------
-        self : VarianceHead
+        self : VarianceTower
             torch module useable in neural networks
 
         Raises
@@ -125,4 +126,135 @@ class VarianceHead(nn.Module):
         
     def forward(self, tau : torch.Tensor) -> torch.Tensor:
         variance_lookup = self.varhead_activation(self.varhead_lookup_table)
-        return variance_lookup[tau]
+        return variance_lookup[tau - 1]
+
+class EquivariantLayer(nn.Module):
+    def __init__(self, input_size : int, output_size : int):
+        """
+        Initializer for permutation equivariant layer as described
+        in https://arxiv.org/abs/1703.06114.
+
+        Parameters
+        ----------
+        input_size : int
+            Size of each input set member.
+            Note this is different from the number of memhers.
+        output_size : int
+            Soze of each output member.
+
+        Returns
+        -------
+        self : EquivariantLayer
+            torch module useable in neural networks
+        """
+        self.lambda_mat = nn.Parameter(torch.rand((output_size, input_size)))
+        self.gamma_mat = nn.Parameter(torch.rand((output_size, input_size)))
+        self.bias_vec = nn.Parameter(torch.rand(output_size))
+
+    def forward(self, input_set : torch.Tensor):
+        r"""
+        Forward pass that computes
+        $(\lambda I + \gamma (1 1^\top)) \vec{x} + \vec{b}$
+
+        Parameters
+        ----------
+        input_set : torch.Tensor
+            Input set with shape (n_members, input_size)
+
+        Returns
+        -------
+        output_set : torch.Tensor
+            Output set with shape (n_members, output_size)
+        """
+        n_members = input_set.size()[0]
+        x = torch.unsqueeze(input_set, 2) # (n_members, input_size, 1)
+
+        lambda_I = self.lambda_mat.expand(n_members, -1, -1) # (n_members, output_size, input_size)
+        self_term = torch.matmul(lambda_I, x)[:,:,0] # (n_members, output_size)
+
+        gamma11 = self.gamma_mat.expand(n_members, n_members, -1, -1) # (n_members, n_members, output_size, input_size)
+        gamma11_dot_x = torch.matmul(gamma11, x)[:,:,:,0] # (n_members, n_members, output_size)
+        interaction_term = torch.sum(gamma11_dot_x, axis=1) # (n_members, output_size)
+
+        bias_term = self.bias_vec.expand(n_members, -1) # (n_members, output_size)
+
+        return self_term + interaction_term + bias_term
+
+class EquivariantDenoiser(nn.Module):
+    def __init__(self
+        n_timesteps : int,
+        tau_encoding_dimension : int,
+        position_encoding_dimension : int,
+        time_encoding_dimension : int,
+        hidden_layer_size : int,
+        n_hidden_layers : int,
+        betas : torch.Tensor | None = None
+    ):
+        """
+        Denoising model using a deep equivariant tower for prediction.
+
+        Parameters
+        ----------
+        n_timesteps : int
+            Number of diffusion time steps
+        tau_encoding_dimension : int
+            Number of dimensions to encode diffusion time
+        time_encoding_dimension : int
+            Number of dimensions to encode the physical time
+        position_encoding_dimension : int
+            Number of dimensions to encode each spatial dimention
+        hidden_layer_size : int
+            Size of hidden equivariant layers in prediction tower
+        n_hidden_layers : int
+            Number of hidden layers in prediction towers
+        betas : torch.Tensor, optional
+            Diffusion schedule with shape (n_timesteps,).
+            Used to initiate the variance tower.
+        """
+        self.pos1_encoding = FourierEncoding(position_encoding_dimension)
+        self.pos2_encoding = FourierEncoding(position_encoding_dimension)
+        self.pos3_encoding = FourierEncoding(position_encoding_dimension)
+        self.time_encoding = FourierEncoding(time_encoding_dimension)
+        self.tau_encoding = FourierEncoding(tau_encoding_dimension)
+        encoding_size = tau_encoding_dimension + 3 * position_encoding_dimension + time_encoding_dimension + 1
+        self.n_timesteps = n_timesteps
+
+        equivariant_layers = [("hidden0", EquivariantLayer(encoding_size, hidden_layer_size))]
+        for ihidden in range(1, n_hidden_layers):
+            equivariant_layers.append(("hidden{}".format(ihidden)), EquivariantLayer(hidden_layer_size, hidden_layer_size))
+        equivariant_layers.append(("prediction_output", EquivariantLayer(hidden_layer_size, 5)))
+        self.prediction_tower = nn.Sequential(OrderedDict(equivariant_layers))
+
+        self.variance_tower = VarianceTower(n_timesteps, initial_variances=betas)
+
+    def forward(self, input_set : torch.Tensor, tau : int):
+        """
+        Forward pass that predicts `tau - 1` state of `input_set`,
+        and the associated variance of the prediction.
+
+        Parameters
+        ----------
+        input_set : torch.Tensor
+            Input set with shape (n_members, 5) with features:
+            (t, x1, x2, x3, Edep).
+        tau : int
+            Diffusion time step of `input_set`
+
+        Returns
+        -------
+        prediction : torch.Tensor
+            Prediction of the `tau - 1` state also with shape (n_members, 5)
+        variance : float
+            Variance of all elements of the prediction.
+        """
+        tau_encoded = self.tau_encoding(torch.Tensor([tau / self.n_timesteps])).expand(len(input_set), -1)
+        time_encoded = self.time_encoding(input_set[:,0])
+        pos1_encoded = self.pos1_encoding(input_set[:,1])
+        pos2_encoded = self.pos1_encoding(input_set[:,2])
+        pos3_encoded = self.pos3_encoding(input_set[:,3])
+        encoded_set = torch.cat((tau_encoded, time_encoded, pos1_encoded, pos2_encoded, pos3_encoded, input_set[:,4:5]))
+
+        prediction = self.prediction_tower(encoded_set)
+        variance = self.variance_tower(tau)
+        
+        return prediction, variance
