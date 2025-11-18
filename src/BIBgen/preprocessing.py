@@ -50,6 +50,31 @@ def whitening_matrices(features : ArrayLike):
 
     return W, W_inv, mu
 
+class Sphering:
+    def __init__(self, mu : ArrayLike, std : ArrayLike):
+        self.mu = mu
+        self.std = std
+
+    @classmethod
+    def from_data(cls, features : ArrayLike):
+        return cls(np.mean(features, axis=0), np.std(features, axis=0))
+
+    @classmethod
+    def from_npy(cls, path : str):
+        assert path.endswith(".npy")
+        arr = np.load(path)
+        return cls(arr[0], arr[1])
+
+    def save_npy(self, path : str):
+        assert path.endswith(".npy")
+        np.save(path, np.stack((self.mu, self.std)))
+
+    def transform(self, unsphered):
+        return (new_data - self.mu) / self.std
+
+    def untransform(self, sphered):
+        return self.std * sphered + self.mu
+
 def diffuse(features : ArrayLike, betas : Sequence) -> ArrayLike:
     r"""
     Applies diffusion by iteratively adding Gaussian noise.
