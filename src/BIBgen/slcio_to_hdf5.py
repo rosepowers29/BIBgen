@@ -19,7 +19,7 @@ def parse_input():
     slcio_files = []
     parser = ArgumentParser()
     parser.add_argument('-i', '--inFiles', dest = 'inFiles', help= 'slcio files to translate', nargs='+')
-    parser.add_argument('-o', '--outFile', dest = 'outFile', help = 'output hdf file, without .hdf5 extension')
+    parser.add_argument('-o', '--outFile', dest = 'outFile', help = 'output hdf file, with .hdf5 extension')
     args = parser.parse_args()
     for file in args.inFiles:
         slcio_files.append(file)
@@ -75,8 +75,7 @@ def make_collection_groups(hdf5_evt):
     ec_colls = ["ECalBarrelCollection", "ECalEndcapCollection"]
     hc_colls = ["HCalBarrelCollection", "HCalEndcapCollection"]
     trk_hit_colls = ["InnerTrackerBarrelCollection", "InnerTrackerEndcapCollection", "OuterTrackerBarrelCollection", 
-             "OuterTrackerEndcapCollection", "VertexBarrelCollection", "VertexEndcapCollection", 
-             "YokeBarrelCollection", "YokeEndcapCollection"]
+             "OuterTrackerEndcapCollection", "VertexBarrelCollection", "VertexEndcapCollection"]
     ec_dict = {}
     hc_dict = {}
     th_dict = {}
@@ -114,7 +113,10 @@ def fill_calohit_datasets(slcio_coll, hdf5_coll):
     hit_z_pos = []
 
     for hit in slcio_coll:
-        hit_times.append(hit.getTime())
+        try:
+            hit_times.append(hit.getTime())
+        except Exception:
+            hit_times.append(-1.)
         hit_energy.append(hit.getEnergy())
         hit_cell_id.append(hit.getCellID0())
         hit_x_pos.append(hit.getPosition()[0])
@@ -153,8 +155,11 @@ def fill_trackerhit_datasets(slcio_coll, hdf5_coll):
     hit_z_pos = []
 
     for hit in slcio_coll:
-        hit_times.append(hit.getTime())
-        hit_e_dep.append(hit.getEnergy())
+        try:
+            hit_times.append(hit.getTime())
+        except Exception:
+            hit_times.append(-1.)
+        hit_e_dep.append(hit.getEDep())
         hit_cell_id.append(hit.getCellID0())
         hit_x_pos.append(hit.getPosition()[0])
         hit_y_pos.append(hit.getPosition()[1])
