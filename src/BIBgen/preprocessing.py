@@ -60,6 +60,14 @@ class Sphering:
         return cls(np.mean(features, axis=0), np.std(features, axis=0))
 
     @classmethod
+    def from_spherings(cls, instances : list):
+        mu_sum, std_sum = instances[0].mu, instances[0].std
+        for i in range(1, len(instances)):
+            mu_sum += instances[i].mu
+            std_sum += instances[i].std
+        return cls(mu_sum / len(instances), std_sum / len(instances))
+
+    @classmethod
     def from_npy(cls, path : str):
         assert path.endswith(".npy")
         arr = np.load(path)
@@ -70,7 +78,7 @@ class Sphering:
         np.save(path, np.stack((self.mu, self.std)))
 
     def transform(self, unsphered):
-        return (new_data - self.mu) / self.std
+        return (unsphered - self.mu) / self.std
 
     def untransform(self, sphered):
         return self.std * sphered + self.mu

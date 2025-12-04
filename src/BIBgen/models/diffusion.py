@@ -185,7 +185,6 @@ class EquivariantDenoiser(nn.Module):
         n_timesteps : int,
         tau_encoding_dimension : int,
         position_encoding_dimension : int,
-        time_encoding_dimension : int,
         hidden_layer_size : int,
         n_hidden_layers : int,
         betas : torch.Tensor | None = None
@@ -199,8 +198,6 @@ class EquivariantDenoiser(nn.Module):
             Number of diffusion time steps
         tau_encoding_dimension : int
             Number of dimensions to encode diffusion time
-        time_encoding_dimension : int
-            Number of dimensions to encode the physical time
         position_encoding_dimension : int
             Number of dimensions to encode each spatial dimention
         hidden_layer_size : int
@@ -214,15 +211,20 @@ class EquivariantDenoiser(nn.Module):
         self.pos1_encoding = FourierEncoding(position_encoding_dimension)
         self.pos2_encoding = FourierEncoding(position_encoding_dimension)
         self.pos3_encoding = FourierEncoding(position_encoding_dimension)
-        self.time_encoding = FourierEncoding(time_encoding_dimension)
         self.tau_encoding = FourierEncoding(tau_encoding_dimension)
-        encoding_size = tau_encoding_dimension + 3 * position_encoding_dimension + time_encoding_dimension + 1
+        encoding_size = tau_encoding_dimension + 3 * position_encoding_dimension + 1
         self.n_timesteps = n_timesteps
 
-        equivariant_layers = [("hidden0", EquivariantLayer(encoding_size, hidden_layer_size))]
+        equivariant_layers = [
+            ("hidden0", EquivariantLayer(encoding_size, hidden_layer_size)),
+            ("activation0", nn.ReLU())
+        ]
         for ihidden in range(1, n_hidden_layers):
-            equivariant_layers.append(("hidden{}".format(ihidden)), EquivariantLayer(hidden_layer_size, hidden_layer_size))
-        equivariant_layers.append(("prediction_output", EquivariantLayer(hidden_layer_size, 5)))
+            equivariant_layers.append(
+                ("hidden{}".format(ihidden)), EquivariantLayer(hidden_layer_size, hidden_layer_size),
+                ("activation{}".format(ihidden), nn.ReLU())
+            )
+        equivariant_layers.append(("prediction_output", EquivariantLayer(hidden_layer_size, 4)))
         self.prediction_tower = nn.Sequential(OrderedDict(equivariant_layers))
 
         self.variance_tower = VarianceTower(n_timesteps, initial_variances=betas)
@@ -235,24 +237,23 @@ class EquivariantDenoiser(nn.Module):
         Parameters
         ----------
         input_set : torch.Tensor
-            Input set with shape (n_members, 5) with features:
-            (t, x1, x2, x3, Edep).
+            Input set with shape (n_members, 4) with features:
+            (Edepm, x1, x2, x3).
         tau : int
             Diffusion time step of `input_set`
 
         Returns
         -------
         prediction : torch.Tensor
-            Prediction of the `tau - 1` state also with shape (n_members, 5)
+            Prediction of the `tau - 1` state also with shape (n_members, 4)
         variance : float
             Variance of all elements of the prediction.
         """
         tau_encoded = self.tau_encoding(torch.Tensor([tau / self.n_timesteps])).expand(len(input_set), -1)
-        time_encoded = self.time_encoding(input_set[:,0])
         pos1_encoded = self.pos1_encoding(input_set[:,1])
         pos2_encoded = self.pos1_encoding(input_set[:,2])
         pos3_encoded = self.pos3_encoding(input_set[:,3])
-        encoded_set = torch.cat((tau_encoded, time_encoded, pos1_encoded, pos2_encoded, pos3_encoded, input_set[:,4:5]))
+        encoded_set = torch.cat((tau_encoded, input_set[:,0:1], pos1_encoded, pos2_encoded, pos3_encoded))
 
         prediction = self.prediction_tower(encoded_set)
         variance = self.variance_tower(tau)
