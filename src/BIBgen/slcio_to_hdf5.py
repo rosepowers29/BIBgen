@@ -198,6 +198,8 @@ def main():
             reader = IOIMPL.LCFactory.getInstance().createLCReader()
             try:
                 reader.open(file)
+                if file_iter%10 == 0:
+                    print(f"reading file {file_iter}...")
             except Exception:
                 # let it skip any "bad" (corrupted) files without breaking
                 print(f"skipping file {file_iter}")
@@ -232,6 +234,8 @@ def main():
                 # end of event loop
             file_iter += 1
             reader.close()
+            if file_iter > 5:
+                break
             # end file loop
 
 

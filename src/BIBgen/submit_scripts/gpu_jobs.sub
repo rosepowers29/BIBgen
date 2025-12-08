@@ -1,0 +1,35 @@
+universe = container
+container_image = /cvmfs/singularity.opensciencegrid.org/htc/pytorch:2.3.1-cuda11.8
+
+log = job_$(Cluster)_$(Process).log
+error = job_$(Cluster)_$(Process).err
+output = job_$(Cluster)_$(Process).out
+
+# bash script calling your executable along with path variables and appropriate environment setup
+executable = submit.sh
+
+# REPLACE with "Long" if job is predicted to take over 40 hrs
++JobDurationCategory = "Medium"
+
+#----------------RESOURCE REQUESTS-------------------#
+
+#this will get us at least an NVIDIA A100
+gpus_minimum_capability = 8.0
+request_gpus = 1
+request_cpus = 1
+
+#change as appropriate
+request_memory = 8GB
+request_disk = 8GB
+
+#--------------FILE TRANSFER HANDLING-----------------#
+
+# REPLACE with the executable in your submit.sh script and any input files 
+transfer_input_files = sample_job_test.py, ../sim_mp_test.hdf5
+
+# REPLACE with output files
+transfer_output_files = output.txt
+should_transfer_files = YES
+
+# REPLACE with however many jobs you are queuing 
+queue 1
