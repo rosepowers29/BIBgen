@@ -220,14 +220,12 @@ class EquivariantDenoiser(nn.Module):
             ("activation0", nn.ReLU())
         ]
         for ihidden in range(1, n_hidden_layers):
-            equivariant_layers.append(
-                ("hidden{}".format(ihidden)), EquivariantLayer(hidden_layer_size, hidden_layer_size),
+            equivariant_layers += [
+                ("hidden{}".format(ihidden), EquivariantLayer(hidden_layer_size, hidden_layer_size)),
                 ("activation{}".format(ihidden), nn.ReLU())
-            )
-        equivariant_layers.append(("prediction_output", EquivariantLayer(hidden_layer_size, 4)))
+            ]
+        equivariant_layers.append(("prediction_output", EquivariantLayer(hidden_layer_size, 4 + 4**2)))
         self.prediction_tower = nn.Sequential(OrderedDict(equivariant_layers))
-
-        self.variance_tower = VarianceTower(n_timesteps, initial_variances=betas)
 
     def forward(self, input_set : torch.Tensor, tau : int):
         """
@@ -255,7 +253,8 @@ class EquivariantDenoiser(nn.Module):
         pos3_encoded = self.pos3_encoding(input_set[:,3])
         encoded_set = torch.cat((tau_encoded, input_set[:,0:1], pos1_encoded, pos2_encoded, pos3_encoded))
 
-        prediction = self.prediction_tower(encoded_set)
-        variance = self.variance_tower(tau)
+        out = self.prediction_tower(encoded_set)
+        prediction = out[:,4]
+        variances = torch.reshape(out[4:], (-1, 4, 4))
         
         return prediction, variance

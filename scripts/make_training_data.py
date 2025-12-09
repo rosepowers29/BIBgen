@@ -58,7 +58,12 @@ def main(args):
     train_group = outfile.create_group("training")
     for ievent in range(ntrain):
         event_id = "evt_{}".format(ievent)
-        train_group.create_dataset(event_id, data=train[ievent])
+        event_group = train_group.create_group(event_id)
+        event_group.create_dataset("tau0", data=train[ievent])
+
+    sphere_group = outfile.create_group("transformation")
+    sphere_group.create_dataset("mu", data=sphering.mu)
+    sphere_group.create_dataset("std", data=sphering.std)
 
     del train
     del train_unsphered
@@ -79,7 +84,8 @@ def main(args):
         unsphered = np.stack([e_raw, phi_raw, s_raw, z_raw], axis=-1)
         sphered = sphering.transform(unsphered)
 
-        val_group.create_dataset(event_id, data=sphered)
+        event_group = val_group.create_group(event_id)
+        event_group.create_dataset("tau0", data=sphered)
         print("Processed {} for validation".format(event_id))
 
     # Test
@@ -97,7 +103,8 @@ def main(args):
 
         unsphered = np.stack([e_raw, phi_raw, s_raw, z_raw], axis=-1)
 
-        test_group.create_dataset(event_id, data=unsphered)
+        event_group = test_group.create_group(event_id)
+        event_group.create_dataset("tau0", data=unsphered)
         print("Processed {} for test".format(event_id))
 
     mmfile.close()
@@ -110,6 +117,6 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Script")
     parser.add_argument("mm_path", help="path to mu- data")
     parser.add_argument("mp_path", help="path to mu+ data")
-    parser.add_argument("-o", "--out", default="training_data.hdf5", help="path to output")
+    parser.add_argument("-o", "--out", default="raw_data.hdf5", help="path to output")
     parser.add_argument("-s", "--split", default="700,200,100", help="training,validation,test split")
     print("\nFinished with exit code:", main(parser.parse_args()))
