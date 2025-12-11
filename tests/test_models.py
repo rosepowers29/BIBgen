@@ -19,13 +19,12 @@ def test_FourierEncoding():
     assert result.size() == torch.Size([64, 16])
     assert result.detach().numpy() == pytest.approx(expected_result, abs=1e-6)
 
-def test_VarianceTower():
-    initial_variances = torch.rand(1000)
-    variance_tower = VarianceTower(1000, initial_variances)
-    
-    taus = torch.randint(1000, size=(100,))
-    result = variance_tower(taus)
-    expected_result = initial_variances[taus]
-    
-    assert result.size() == torch.Size([100])
-    assert result.detach().numpy() == pytest.approx(expected_result)
+def test_EquivariantLayer():
+    layer = EquivariantLayer(4, 8)
+
+    input_set = torch.rand((128, 4))
+    output_set = layer(input_set)
+    assert output_set.size() == torch.Size([128, 8])
+
+    transpose_idx = torch.randperm(128)
+    assert output_set[transpose_idx].detach().numpy() == pytest.approx(layer(input_set[transpose_idx]).detach().numpy())

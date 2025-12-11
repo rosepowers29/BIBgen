@@ -147,6 +147,8 @@ class EquivariantLayer(nn.Module):
         self : EquivariantLayer
             torch module useable in neural networks
         """
+        super().__init__()
+
         self.lambda_mat = nn.Parameter(torch.rand((output_size, input_size)))
         self.gamma_mat = nn.Parameter(torch.rand((output_size, input_size)))
         self.bias_vec = nn.Parameter(torch.rand(output_size))
@@ -181,7 +183,7 @@ class EquivariantLayer(nn.Module):
         return self_term + interaction_term + bias_term
 
 class EquivariantDenoiser(nn.Module):
-    def __init__(self
+    def __init__(self,
         n_timesteps : int,
         tau_encoding_dimension : int,
         position_encoding_dimension : int,
@@ -208,6 +210,8 @@ class EquivariantDenoiser(nn.Module):
             Diffusion schedule with shape (n_timesteps,).
             Used to initiate the variance tower.
         """
+        super().__init__()
+
         self.pos1_encoding = FourierEncoding(position_encoding_dimension)
         self.pos2_encoding = FourierEncoding(position_encoding_dimension)
         self.pos3_encoding = FourierEncoding(position_encoding_dimension)
