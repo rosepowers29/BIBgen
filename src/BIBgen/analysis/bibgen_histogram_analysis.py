@@ -346,12 +346,111 @@ class BIBgenHistogramAnalyzer:
         self.plot_basic_observables(hits, prefix)
         self.plot_eta_phi_2d(hits, prefix)
         self.plot_delta_r_clustering(hits, prefix, max_hits_sample=max_hits_for_clustering)
+    
+    def plot_overlay_comparison(self, mc_hits: Dict[str, np.ndarray],
+                                gen_hits: Dict[str, np.ndarray],
+                                prefix: str = "comparison",
+                                bins: int = 100):
+        """Plot MC and generated data overlayed on same axes."""
+        
+        fig, axes = plt.subplots(2, 3, figsize=(18, 12))
+        fig.suptitle('MC vs Generated', fontsize=16, fontweight='bold')
+        
+        # Energy
+        axes[0, 0].hist(mc_hits['energy'], bins=bins, histtype='step', linewidth=2, 
+                       label='MC', color='blue', alpha=0.7)
+        axes[0, 0].hist(gen_hits['energy'], bins=bins, histtype='step', linewidth=2, 
+                       label='Generated', color='red', alpha=0.7)
+        axes[0, 0].set_xlabel('Energy [GeV]', fontsize=12)
+        axes[0, 0].set_ylabel('Counts', fontsize=12)
+        axes[0, 0].set_title('Energy', fontsize=13, fontweight='bold')
+        axes[0, 0].set_yscale('log')
+        axes[0, 0].legend()
+        axes[0, 0].grid(True, alpha=0.3)
+        
+        # Phi
+        axes[0, 1].hist(mc_hits['phi'], bins=bins, histtype='step', linewidth=2,
+                       label='MC', color='blue', alpha=0.7, range=(-np.pi, np.pi))
+        axes[0, 1].hist(gen_hits['phi'], bins=bins, histtype='step', linewidth=2,
+                       label='Generated', color='red', alpha=0.7, range=(-np.pi, np.pi))
+        axes[0, 1].set_xlabel('φ [rad]', fontsize=12)
+        axes[0, 1].set_ylabel('Counts', fontsize=12)
+        axes[0, 1].set_title('φ', fontsize=13, fontweight='bold')
+        axes[0, 1].set_xlim(-np.pi, np.pi)
+        axes[0, 1].legend()
+        axes[0, 1].grid(True, alpha=0.3)
+        
+        # Eta
+        eta_mc = mc_hits['eta'][np.isfinite(mc_hits['eta'])]
+        eta_gen = gen_hits['eta'][np.isfinite(gen_hits['eta'])]
+        axes[0, 2].hist(eta_mc, bins=bins, histtype='step', linewidth=2,
+                       label='MC', color='blue', alpha=0.7)
+        axes[0, 2].hist(eta_gen, bins=bins, histtype='step', linewidth=2,
+                       label='Generated', color='red', alpha=0.7)
+        axes[0, 2].set_xlabel('η', fontsize=12)
+        axes[0, 2].set_ylabel('Counts', fontsize=12)
+        axes[0, 2].set_title('η', fontsize=13, fontweight='bold')
+        axes[0, 2].legend()
+        axes[0, 2].grid(True, alpha=0.3)
+        
+        # Radial
+        axes[1, 0].hist(mc_hits['s'], bins=bins, histtype='step', linewidth=2,
+                       label='MC', color='blue', alpha=0.7)
+        axes[1, 0].hist(gen_hits['s'], bins=bins, histtype='step', linewidth=2,
+                       label='Generated', color='red', alpha=0.7)
+        axes[1, 0].set_xlabel('s [mm]', fontsize=12)
+        axes[1, 0].set_ylabel('Counts', fontsize=12)
+        axes[1, 0].set_title('Radial', fontsize=13, fontweight='bold')
+        axes[1, 0].set_yscale('log')
+        axes[1, 0].legend()
+        axes[1, 0].grid(True, alpha=0.3)
+        
+        # Z
+        axes[1, 1].hist(mc_hits['z'], bins=bins, histtype='step', linewidth=2,
+                       label='MC', color='blue', alpha=0.7)
+        axes[1, 1].hist(gen_hits['z'], bins=bins, histtype='step', linewidth=2,
+                       label='Generated', color='red', alpha=0.7)
+        axes[1, 1].set_xlabel('z [mm]', fontsize=12)
+        axes[1, 1].set_ylabel('Counts', fontsize=12)
+        axes[1, 1].set_title('Z Position', fontsize=13, fontweight='bold')
+        axes[1, 1].legend()
+        axes[1, 1].grid(True, alpha=0.3)
+        
+        # Stats
+        axes[1, 2].axis('off')
+        stats = f"""
+        MC vs Generated
+        ───────────────
+        
+        Hits:
+          MC:  {len(mc_hits['energy']):,}
+          Gen: {len(gen_hits['energy']):,}
+        
+        Energy mean:
+          MC:  {np.mean(mc_hits['energy']):.3f}
+          Gen: {np.mean(gen_hits['energy']):.3f}
+        
+        η range:
+          MC:  [{np.min(eta_mc):.2f}, {np.max(eta_mc):.2f}]
+          Gen: [{np.min(eta_gen):.2f}, {np.max(eta_gen):.2f}]
+        """
+        axes[1, 2].text(0.1, 0.5, stats, fontsize=10, verticalalignment='center',
+                       family='monospace', bbox=dict(boxstyle='round', facecolor='wheat', alpha=0.3))
+        
+        plt.tight_layout()
+        plt.savefig(self.output_dir / f"{prefix}_overlay.png", dpi=300, bbox_inches='tight')
+        plt.close()
 
 
 def compare_mc_vs_generated(mc_hits: Dict[str, np.ndarray],
                            gen_hits: Dict[str, np.ndarray],
-                           output_dir: str = "comparison"):
-    """Compare MC truth vs generated samples."""
+                           output_dir: str = "comparison",
+                           overlay: bool = True):
+    """Compare MC vs generated. Set overlay=False for separate plots."""
     analyzer = BIBgenHistogramAnalyzer(output_dir=output_dir)
-    analyzer.generate_all_histograms(mc_hits, prefix="mc_truth")
-    analyzer.generate_all_histograms(gen_hits, prefix="generated")
+    
+    if overlay:
+        analyzer.plot_overlay_comparison(mc_hits, gen_hits)
+    else:
+        analyzer.generate_all_histograms(mc_hits, prefix="mc_truth")
+        analyzer.generate_all_histograms(gen_hits, prefix="generated")
