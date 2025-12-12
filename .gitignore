@@ -216,9 +216,10 @@ __marimo__/
 .streamlit/secrets.toml
 
 # hdf5 files
-.hdf5
+*.hdf5
 
 # Condor Output
 *.log
 *.out
 *.err
+*.pth*
