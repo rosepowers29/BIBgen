@@ -175,17 +175,18 @@ def fill_trackerhit_datasets(slcio_coll, hdf5_coll):
 
 
 
-def main():
+def convert_files(files_to_read, file_to_write):
     """
-    The main routine. Called when "python slcio_to_hdf5.py -i [input_files] is entered at command line.
-    Grabs slcio files from the commandline, opens them, gets desired collections, and writes to hdf5 file.
+    The main routine. In the executable script, get the arguments from the command line and call this function. 
+    Grabs slcio files, opens them, gets desired collections, and writes to hdf5 file.
 
-    Arguments: None
+    Arguments:
+        files_to_read (list[str]): list of slcio filepaths
+        file_to_write (str): filepath of output file
     
     Returns: None
 
     """
-    files_to_read, file_to_write = parse_input()
     
     # create hdf5 file before event loop
     with h5py.File(file_to_write, 'w') as hdf_file:
@@ -234,11 +235,4 @@ def main():
                 # end of event loop
             file_iter += 1
             reader.close()
-            if file_iter > 5:
-                break
             # end file loop
-
-
-
-if __name__ == "__main__":
-    main()

@@ -80,6 +80,28 @@ class DiffusedPairDataset(Dataset):
             loaded_pairs (DataLoader instance): A DataLoader object with the 100 consecutive pairs in the event.
         
         """
+
         # set batch_size=1 to return one pair per iteration
         loaded_pairs = DataLoader(self, batch_size=1, shuffle=False)
         return loaded_pairs
+
+    
+def multi_evt_loading(hdf5_file, n_evts):
+    """
+    Allows the DataLoader defined above to return a timestep pair for multiple events.
+        
+    Arguments: 
+        hdf5_file (str): the filepath to the input file
+        n_evts (int): the number of events we want to process
+
+    Returns:
+        dataloaders (list[DataLoader tensor pairs])
+    """
+    dataloaders = [[] for _ in range(n_evts)]
+    for evt in range(n_evts):
+        evt_name = "evt_"+str(evt)
+        evt_data = DiffusedPairDataset(hdf5_file, 'training', evt_name)
+        evt_pairs = evt_data.load_data()
+        dataloaders.append(evt_data)
+
+    return dataloaders

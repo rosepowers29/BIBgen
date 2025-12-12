@@ -20,8 +20,8 @@ dependencies = [
 	"scikit-learn",
 	"matplotlib",
     	"torch==2.9.0",
-	"pyLCIO",
-	"h5py"
+	"h5py",
+	"argparse",
 ]
 
 [dependency-groups]
@@ -31,6 +31,7 @@ test = [
 dev = [
 	{include-group = "test"},
   "torchvision",
+   "pyLCIO",
 ]
 
 [tool.ruff.lint]
