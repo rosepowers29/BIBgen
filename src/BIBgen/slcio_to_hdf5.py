@@ -1,6 +1,5 @@
 from pyLCIO import IOIMPL, EVENT, UTIL
 import h5py
-from argparse import ArgumentParser
 import numpy as np
 
 def make_event_group(hdf5_file, evt_num):
