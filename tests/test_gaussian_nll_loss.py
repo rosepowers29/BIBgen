@@ -1,7 +1,7 @@
 """Test for Gaussian NLL loss."""
 
 import torch
-from BIBgen.losses import GaussianNLLLoss
+from BIBgen.loss_function.gaussian_nll import GaussianNLLLoss
 
 
 if __name__ == "__main__":
