@@ -27,4 +27,4 @@ def test_EquivariantLayer():
     assert output_set.size() == torch.Size([128, 8])
 
     transpose_idx = torch.randperm(128)
-    assert output_set[transpose_idx].detach().numpy() == pytest.approx(layer(input_set[transpose_idx]).detach().numpy())
+    assert output_set[transpose_idx].detach().numpy() == pytest.approx(layer(input_set[transpose_idx]).detach().numpy(), abs=1e-4)

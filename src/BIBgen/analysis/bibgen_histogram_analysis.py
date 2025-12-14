@@ -29,7 +29,7 @@ class BIBgenHistogramAnalyzer:
         Returns:
             Pseudorapidity eta
         """
-        theta = np.arctan2(s, z)
+        theta = abs(np.arctan2(s, z))
         eta = -np.log(np.tan((theta % (2*np.pi)) / 2.0 + 1e-10))
         return eta
     
@@ -295,6 +295,7 @@ class BIBgenHistogramAnalyzer:
         ax.set_ylabel('φ [rad]', fontsize=12)
         ax.set_title('Hit Distribution in η-φ Space', fontsize=14, fontweight='bold')
         ax.set_ylim(-np.pi, np.pi)
+        ax.set_xlim(-3, 3)
         ax.grid(True, alpha=0.3)
         
         plt.tight_layout()

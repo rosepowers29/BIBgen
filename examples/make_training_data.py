@@ -114,7 +114,7 @@ def main(args):
     return 0
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description="Script")
+    parser = argparse.ArgumentParser(description="Run preprocessing on raw data hdf5 files")
     parser.add_argument("mm_path", help="path to mu- data")
     parser.add_argument("mp_path", help="path to mu+ data")
     parser.add_argument("-o", "--out", default="raw_data.hdf5", help="path to output")
