@@ -3,11 +3,11 @@ import argparse
 import h5py
 import torch
 
-parser = argparse.ArgumentParser()
+parser = argparse.ArgumentParser(description="Generates demo events with a trained model with a specific number of hits")
 parser.add_argument("model_path")
-parser.add_argument("-c", "--condor", action="store_true")
-parser.add_argument("-n", "--nevents", type=int)
-parser.add_argument("-s", "--size", type=int)
+parser.add_argument("-c", "--condor", action="store_true", help="Script is running in a condor job. Will import from local files.")
+parser.add_argument("-n", "--nevents", type=int, help="Number of events to generate")
+parser.add_argument("-s", "--size", type=int, help="Number of hits per event")
 args = parser.parse_args()
 
 if args.condor:

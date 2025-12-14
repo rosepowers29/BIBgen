@@ -30,6 +30,11 @@ def main(args):
         gen_vars = analyzer.load_from_model_output(gendata[event_id], sphering=Sphering(mu, std))
 
         analyzer.plot_overlay_comparison(mc_vars, gen_vars, prefix=event_id)
+        analyzer.plot_eta_phi_2d(mc_vars, prefix="mc")
+        analyzer.plot_eta_phi_2d(gen_vars, prefix="gen")
+        analyzer.plot_delta_r_clustering(mc_vars, prefix="mc")
+        analyzer.plot_delta_r_clustering(gen_vars, prefix="gen")
+        break
 
     noise_vars = analyzer.load_from_model_output(np.random.normal(size=(len(mcdata), 4)), sphering=Sphering(mu, std))
     analyzer.plot_overlay_comparison(mc_vars, noise_vars, prefix="noise")
