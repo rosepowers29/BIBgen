@@ -4,10 +4,10 @@ import h5py
 import torch
 import numpy as np
 
-parser = argparse.ArgumentParser()
+parser = argparse.ArgumentParser(description="Script to train a equivariant denoising model")
 parser.add_argument("inpath")
-parser.add_argument("-c", "--condor", action="store_true")
-parser.add_argument("-e", "--epochs", type=int)
+parser.add_argument("-c", "--condor", action="store_true", help="Script is running in a condor job. Will import from local files.")
+parser.add_argument("-e", "--epochs", type=int, help="Number of epochs to train")
 args = parser.parse_args()
 
 if args.condor:
@@ -24,7 +24,6 @@ def main(args):
     nepochs = args.epochs
     assert inpath.endswith(".hdf5")
 
-    # device = torch.accelerator.current_accelerator().type if torch.accelerator.is_available() else "cpu"
     device = torch.device("cuda") if torch.cuda.is_available() else torch.device("cpu")
     print(f"Using {device} device")
 
@@ -39,13 +38,6 @@ def main(args):
         hidden_layer_size = 256,
         n_hidden_layers = 4
     ).to(device)
-    # model = EquivariantDenoiser(
-    #     n_timesteps = 100,
-    #     tau_encoding_dimension = 8,
-    #     position_encoding_dimension = 16,
-    #     hidden_layer_size = 32,
-    #     n_hidden_layers = 1
-    # )
 
     gaussian_nll = GaussianNLLLoss()
     loss_fn = lambda pred, y: gaussian_nll(*pred, y)

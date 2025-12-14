@@ -35,7 +35,7 @@ def main(args):
     return 0
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser()
+    parser = argparse.ArgumentParser(description="Run diffusion on preprocessed data")
     parser.add_argument("raw_data", help="Undiffused raw data produced by make_training_data.py")
-    parser.add_argument("-o", "--out", default="diffused.hdf5", help="Path to outpath")
+    parser.add_argument("-o", "--out", default="diffused.hdf5", help="Path to output path")
     print("\nFinished with exit code:", main(parser.parse_args()))

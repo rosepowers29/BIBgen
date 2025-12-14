@@ -1,4 +1,4 @@
-from typing import Sequence
+from typing import Sequence, Iterable
 
 import numpy as np
 from numpy.typing import ArrayLike
@@ -52,32 +52,90 @@ def whitening_matrices(features : ArrayLike):
 
 class Sphering:
     def __init__(self, mu : ArrayLike, std : ArrayLike):
+        """
+        Class for normalizing and centering data.
+
+        Parameters
+        ----------
+        mu : numpy.typing.ArrayLike
+            Mean of data along axis 0
+        std : numpy.typing.ArrayLike
+            Standard deviation of data along axis 0
+
+        Returns
+        -------
+        self : Sphering
+            object for transforming and untransforming data
+        """
         self.mu = mu
         self.std = std
 
     @classmethod
     def from_data(cls, features : ArrayLike):
+        """
+        Constructor from data
+
+        Parameters
+        ----------
+        features : numpy.typing.ArrayLike
+            Data array at least 1d. Mu and std will be computed along axis 0
+
+        Returns
+        -------
+        self : Sphering
+            object for transforming and untransforming data
+        """
         return cls(np.mean(features, axis=0), np.std(features, axis=0))
 
     @classmethod
-    def from_spherings(cls, instances : list):
+    def from_spherings(cls, instances : Iterable):
+        """
+        Constructor from collection of Sphering objects.
+        Averages their mu and std.
+
+        Parameters
+        ----------
+        instances : Iterable[Sphering]
+            Collection of Sphering objects with the same shape for mu and std
+
+        Returns
+        -------
+        self : Sphering
+            object for transforming and untransforming data
+        """
         mu_sum, std_sum = instances[0].mu, instances[0].std
         for i in range(1, len(instances)):
             mu_sum += instances[i].mu
             std_sum += instances[i].std
         return cls(mu_sum / len(instances), std_sum / len(instances))
 
-    @classmethod
-    def from_npy(cls, path : str):
-        assert path.endswith(".npy")
-        arr = np.load(path)
-        return cls(arr[0], arr[1])
+    def transform(self, unsphered : ArrayLike):
+        """
+        Transform data to have zero mean and unit standard deviation.
 
-    def save_npy(self, path : str):
-        assert path.endswith(".npy")
-        np.save(path, np.stack((self.mu, self.std)))
+        Parameters
+        ----------
+        unsphered : numpy.typing.ArrayLike
+            Raw data with all dimensions of axes >= 1 equal to mu and std
 
-    def transform(self, unsphered):
+        Returns
+        -------
+        sphered : numpy.ndarray
+            Transformed data
+
+        Examples
+        --------
+        >>> import numpy as np
+        >>> import pytest
+        >>> from BIBgen.preprocessing import Sphering
+        >>> data = np.random.rand(50, 5)
+        >>> sphering = Sphering.from_data(data)
+        >>> sphered = sphering.transform(data)
+        >>> np.mean(transformed, axis=0) == pytest.approx(np.zeros(5), abs=1e-4)
+        True
+        >>> np.std(transformed, axis=0) == pytest.approx(np.ones(5), abs=1e-4)
+        True
+        """
         return (unsphered - self.mu) / self.std
 
     def untransform(self, sphered):
