@@ -1,3 +1,5 @@
+from typing import Callable
+
 import h5py
 import torch
 
