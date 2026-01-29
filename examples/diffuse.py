@@ -8,9 +8,11 @@ from BIBgen.preprocessing import diffuse
 def main(args):
     inpath = args.raw_data
     outpath = args.out
+    schedule_path = args.noise_schedule
     assert inpath.endswith(".hdf5")
+    assert schedule_path.endswith(".csv")
 
-    schedule = 3e-5 * np.arange(1, 101)**2
+    schedule = np.loadtxt(schedule_path)
     alpha_bar = np.prod(1 - schedule)
     print("alpha_bar =", alpha_bar)
 
@@ -37,5 +39,6 @@ def main(args):
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Run diffusion on preprocessed data")
     parser.add_argument("raw_data", help="Undiffused raw data produced by make_training_data.py")
+    parser.add_argument("noise_schedule")
     parser.add_argument("-o", "--out", default="diffused.hdf5", help="Path to output path")
     print("\nFinished with exit code:", main(parser.parse_args()))

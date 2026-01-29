@@ -7,6 +7,6 @@ export PYTHONPATH=$PYTHONPATH:/opt/conda/lib/python3.10/site-packages
 pip install h5py
 
 # REPLACE with your executable
-python generate_demo.py denoiser_v0.pth -c -n 10 -s 63000
+python generate_demo.py denoiser_v4.pth noise_schedule.csv -c -n 10 -s 5077 # mean number of barrel hits in pi/2 slice
 
 # END

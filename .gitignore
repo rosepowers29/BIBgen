@@ -226,3 +226,5 @@ __marimo__/
 
 # Self-explanatory
 *.png
+private
+*.txt

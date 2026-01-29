@@ -11,7 +11,7 @@ def test_FourierEncoding():
     x = torch.rand(64)
     result = fourier_encoding(x)
 
-    thetas = torch.outer(x, 2 * np.pi * frequencies)
+    thetas = torch.outer(x, frequencies)
     sin_elems = torch.sin(thetas)
     cos_elems = torch.cos(thetas)
     expected_result = torch.cat((sin_elems, cos_elems), dim=1)

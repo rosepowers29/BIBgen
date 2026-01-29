@@ -2,6 +2,7 @@ from typing import Callable
 
 import h5py
 import torch
+import numpy as np
 
 class DataLoader:
     def __init__(self, infile : h5py.File, key : str, shuffle : bool = True):
@@ -62,7 +63,14 @@ class DataLoader:
         event = self.infile[self.key + "/" + self.event_ids[event_no]]
         return torch.from_numpy(event[tau+1]).to(dtype=torch.float32), torch.from_numpy(event[tau]).to(dtype=torch.float32), tau
 
-def train(dataloader : DataLoader, model : torch.nn.Module, loss_fn : Callable, optimizer : torch.optim.Optimizer, device : torch.device):
+def train(
+    dataloader : DataLoader,
+    model : torch.nn.Module,
+    loss_fn : Callable,
+    optimizer : torch.optim.Optimizer,
+    device : torch.device,
+    scaler : torch.amp.GradScaler | None = None
+):
     """
     Trains the model for one epoch.
 
@@ -73,7 +81,7 @@ def train(dataloader : DataLoader, model : torch.nn.Module, loss_fn : Callable, 
     model : torch.nn.Module
         Denoising model
     loss_fn : Callable
-        loss function to be called directly on model output, i.e. loss_fn(pred, y) instead of loss_fn(mu, std, y)
+        loss function to be called directly on model output, i.e. loss_fn(pred, y, tau) instead of loss_fn(mu, std, y)
     optimizer : torch.optim.Optimizer
         Optimizer for gradient descent
     device : torch.device
@@ -84,20 +92,37 @@ def train(dataloader : DataLoader, model : torch.nn.Module, loss_fn : Callable, 
     loss : float
         Training loss on the final iteration
     """
+    # assert scaler is not None or device.type != "cuda"
     model.train()
     for istep in range(dataloader.nsteps):
         X, y, tau = next(dataloader)
         X, y = X.to(device), y.to(device)
 
         # Compute prediction error
-        pred = model(X, tau)
-        loss = loss_fn(pred, y)
+        if scaler is not None:
+            with torch.autocast(device_type='cuda', dtype=torch.float16):
+                pred = model(X, tau)
+                loss = loss_fn(pred, y, tau)
+        else:
+            pred = model(X, tau)
+            loss = loss_fn(pred, y, tau)
 
         # Backpropagation
-        loss.backward()
-        optimizer.step()
-        optimizer.zero_grad()
+        try:
+            if scaler is not None:
+                scaler.scale(loss).backward()
+                scaler.step(optimizer)
+                scaler.update()
+            else:
+                loss.backward()
+                optimizer.step()
+        except torch.cuda.OutOfMemoryError:
+            print("Failed step {}, cuda out of memory".format(istep))
+            print("X.size() : {}, y.size() : {}".format(X.size(), y.size()))
+            print("pred.size() : {}".format(pred.size()))
+            raise Exception("Intentional exit")
 
+    optimizer.zero_grad()
     return loss.item()
 
 def evaluate(dataloader : DataLoader, model : torch.nn.Module, loss_fn : Callable, device : torch.device):
@@ -109,7 +134,7 @@ def evaluate(dataloader : DataLoader, model : torch.nn.Module, loss_fn : Callabl
     model : torch.nn.Module
         Denoising model
     loss_fn : Callable
-        loss function to be called directly on model output, i.e. loss_fn(pred, y) instead of loss_fn(mu, std, y)
+        loss function to be called directly on model output, i.e. loss_fn(pred, y, tau) instead of loss_fn(mu, std, y)
     device : torch.device
         device on which to perform, usually torch.device("cuda") or torch.device("cpu")
 
@@ -126,6 +151,13 @@ def evaluate(dataloader : DataLoader, model : torch.nn.Module, loss_fn : Callabl
             X, y, tau = next(dataloader)
             X, y = X.to(device), y.to(device)
             pred = model(X, tau)
-            test_loss += loss_fn(pred, y).item()
+            test_loss += loss_fn(pred, y, tau).item()
+
+            if not np.isfinite(test_loss):
+                print("test_loss:", test_loss)
+                print("X:", X)
+                print("y:", y)
+                print("pred:", pred)
+                raise RuntimeError("Nonfinite test loss")
 
     return test_loss / dataloader.nsteps

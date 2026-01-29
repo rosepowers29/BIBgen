@@ -367,19 +367,20 @@ class BIBgenHistogramAnalyzer:
         axes[0, 0].set_ylabel('Counts', fontsize=12)
         axes[0, 0].set_title('Energy', fontsize=13, fontweight='bold')
         axes[0, 0].set_yscale('log')
-        axes[0, 0].set_xlim(0, 0.04)
+        axes[0, 0].set_xlim(0, 0.005)
         axes[0, 0].legend()
         axes[0, 0].grid(True, alpha=0.3)
         
         # Phi
+        phi_range = (-1.0, 1.0)
         axes[0, 1].hist(mc_hits['phi'], bins=bins, histtype='step', linewidth=2,
-                       label='MC', color='blue', alpha=0.7, range=(-np.pi, np.pi), density=normalized)
+                       label='MC', color='blue', alpha=0.7, range=phi_range, density=normalized)
         axes[0, 1].hist(gen_hits['phi'], bins=bins, histtype='step', linewidth=2,
-                       label='Generated', color='red', alpha=0.7, range=(-np.pi, np.pi), density=normalized)
+                       label='Generated', color='red', alpha=0.7, range=phi_range, density=normalized)
         axes[0, 1].set_xlabel('φ [rad]', fontsize=12)
         axes[0, 1].set_ylabel('Counts', fontsize=12)
         axes[0, 1].set_title('φ', fontsize=13, fontweight='bold')
-        axes[0, 1].set_xlim(-np.pi, np.pi)
+        axes[0, 1].set_xlim(*phi_range)
         axes[0, 1].legend()
         axes[0, 1].grid(True, alpha=0.3)
         
@@ -393,7 +394,7 @@ class BIBgenHistogramAnalyzer:
         axes[0, 2].set_xlabel('η', fontsize=12)
         axes[0, 2].set_ylabel('Counts', fontsize=12)
         axes[0, 2].set_title('η', fontsize=13, fontweight='bold')
-        axes[0, 2].set_xlim(-3, 3)
+        axes[0, 2].set_xlim(-1.5, 1.5)
         axes[0, 2].legend()
         axes[0, 2].grid(True, alpha=0.3)
         
@@ -406,7 +407,7 @@ class BIBgenHistogramAnalyzer:
         axes[1, 0].set_ylabel('Counts', fontsize=12)
         axes[1, 0].set_title('Radial', fontsize=13, fontweight='bold')
         axes[1, 0].set_yscale('log')
-        axes[1, 0].set_xlim(0, 2500)
+        axes[1, 0].set_xlim(1700, 2300)
         axes[1, 0].legend()
         axes[1, 0].grid(True, alpha=0.3)
         

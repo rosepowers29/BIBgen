@@ -45,9 +45,9 @@ class FourierEncoding(nn.Module):
         half_dimension = dimension // 2
 
         if initial_frequencies is None:
-            initial_frequencies = torch.arange(1, half_dimension+1)
+            initial_frequencies = torch.arange(1, half_dimension+1, dtype=torch.float32)
 
-        self.frequency_table = nn.Parameter(data=initial_frequencies, dtype=torch.float32)
+        self.frequency_table = nn.Parameter(data=initial_frequencies)
 
     def forward(self, x : torch.Tensor) -> torch.Tensor:
         """
@@ -174,16 +174,23 @@ class EquivariantLayer(nn.Module):
         n_members = input_set.size()[0]
         x = torch.unsqueeze(input_set, 2) # (n_members, input_size, 1)
 
-        lambda_I = self.lambda_mat.expand(n_members, -1, -1) # (n_members, output_size, input_size)
-        self_term = torch.matmul(lambda_I, x)[:,:,0] # (n_members, output_size)
+        # OLD DIRECT CALCULATION
+        # lambda_I = self.lambda_mat.expand(n_members, -1, -1) # (n_members, output_size, input_size)
+        # self_term = torch.matmul(lambda_I, x)[:,:,0] # (n_members, output_size)
 
-        x_sum = torch.mean(x, dim=(0,2)) # (input_size) # TODO: Reconsider mean
-        gamma_x_sum = torch.matmul(self.gamma_mat, x_sum) # (output_size)
-        interaction_term = gamma_x_sum.expand(n_members, -1) # (n_members, output_size)
+        # x_sum = torch.mean(x, dim=(0,2)) # (input_size) # TODO: Reconsider mean
+        # gamma_x_sum = torch.matmul(self.gamma_mat, x_sum) # (output_size)
+        # interaction_term = gamma_x_sum.expand(n_members, -1) # (n_members, output_size)
 
-        bias_term = self.bias_vec.expand(n_members, -1) # (n_members, output_size)
+        # bias_term = self.bias_vec.expand(n_members, -1) # (n_members, output_size)
 
-        return self_term + interaction_term + bias_term
+        # return self_term + interaction_term + bias_term
+
+        # ChatGPT writing code better than mine lol
+        self_term = input_set @ self.lambda_mat.T
+        x_mean = input_set.mean(dim=0)
+        interaction = (self.gamma_mat @ x_mean).expand(n_members, -1)
+        return self_term + interaction + self.bias_vec
 
 class EquivariantDenoiser(nn.Module):
     def __init__(self,
@@ -191,7 +198,8 @@ class EquivariantDenoiser(nn.Module):
         tau_encoding_dimension : int,
         position_encoding_dimension : int,
         hidden_layer_size : int,
-        n_hidden_layers : int
+        n_hidden_layers : int,
+        predict_variances : bool = False
     ):
         """
         Denoising model using a deep equivariant tower for prediction.
@@ -230,18 +238,22 @@ class EquivariantDenoiser(nn.Module):
                 ("hidden{}".format(ihidden), EquivariantLayer(hidden_layer_size, hidden_layer_size)),
                 ("activation{}".format(ihidden), nn.ReLU())
             ]
-        equivariant_layers.append(("prediction_output", EquivariantLayer(hidden_layer_size, 4 * 2)))
+
+        self.predict_variances = predict_variances
+        output_size = 4 * 2 if self.predict_variances else 4
+        equivariant_layers.append(("prediction_output", EquivariantLayer(hidden_layer_size, output_size)))
+
         self.prediction_tower = nn.Sequential(OrderedDict(equivariant_layers))
 
     def forward(self, input_set : torch.Tensor, tau : int):
         """
-        Forward pass that predicts `tau - 1` state of `input_set`,
+        Forward pass that predicts `tau` state of `input_set`,
         and the associated variance of the prediction.
 
         Parameters
         ----------
         input_set : torch.Tensor
-            Input set with shape (n_members, 4) with features:
+            Input set at 'tau + 1' state with shape (n_members, 4) with features:
             (Edepm, x1, x2, x3).
         tau : int
             Diffusion time step of `input_set`
@@ -249,7 +261,7 @@ class EquivariantDenoiser(nn.Module):
         Returns
         -------
         prediction : torch.Tensor
-            Prediction of the `tau - 1` state also with shape (n_members, 4)
+            Prediction of the `tau` state also with shape (n_members, 4)
         variance : float
             Variance of all elements of the prediction.
         """
@@ -261,7 +273,10 @@ class EquivariantDenoiser(nn.Module):
         encoded_set = torch.cat((tau_encoded, input_set[:,0:1], pos1_encoded, pos2_encoded, pos3_encoded), axis=1)
 
         out = self.prediction_tower(encoded_set)
+
+        if not self.predict_variances:
+            return out
+
         prediction = out[:,:4]
         variances = torch.nn.functional.softplus(out[:, 4:])
-        
         return prediction, variances

@@ -17,10 +17,11 @@ def create_dummy_dataset(nevents : int, ntau : int, random : bool = True):
             pseudodata = np.random.rand(ntau, 10, 4) if random else np.array([np.ones((10, 4)) * t for t in range(ntau)])
             train_group.create_dataset("evt_{}".format(event_no), data=pseudodata)
 
-    return dummy_fname
+    schedule = torch.arange(1, ntau + 1) * 1e-3
+    return dummy_fname, schedule
 
 def test_DataLoader():
-    dummy_fname = create_dummy_dataset(2, 11, random=False)
+    dummy_fname, _ = create_dummy_dataset(2, 11, random=False)
 
     with h5py.File(dummy_fname, "r") as fin:
         dataloader = DataLoader(fin, "training")
@@ -45,12 +46,12 @@ def test_train():
         hidden_layer_size = 8,
         n_hidden_layers = 1
     ).to(device)
-    gaussian_nll = GaussianNLLLoss()
-    loss_fn = lambda pred, y: gaussian_nll(*pred, y)
     optimizer = torch.optim.SGD(model.parameters(), lr=1e-7)
 
-    dummy_fname = create_dummy_dataset(2, 11)
+    dummy_fname, schedule = create_dummy_dataset(2, 11)
 
+    gaussian_nll = GaussianNLLLoss()
+    loss_fn = lambda pred, y, tau: gaussian_nll(pred, schedule[tau], y)
     with h5py.File(dummy_fname, "r") as fin:
         dataloader = DataLoader(fin, "training")
 
@@ -68,14 +69,15 @@ def test_evaluate():
         hidden_layer_size = 8,
         n_hidden_layers = 1
     ).to(device)
+
+    dummy_fname, schedule = create_dummy_dataset(2, 11)
+
     gaussian_nll = GaussianNLLLoss()
-    loss_fn = lambda pred, y: gaussian_nll(*pred, y)
-
-    dummy_fname = create_dummy_dataset(2, 11)
-
+    loss_fn = lambda pred, y, tau: gaussian_nll(pred, schedule[tau], y)
     with h5py.File(dummy_fname, "r") as fin:
         dataloader = DataLoader(fin, "training")
 
-        evaluate(dataloader, model, loss_fn, device)
+        test_loss = evaluate(dataloader, model, loss_fn, device)
 
+    assert np.isfinite(test_loss), test_loss
     os.remove(dummy_fname)

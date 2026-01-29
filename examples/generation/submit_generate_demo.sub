@@ -14,7 +14,7 @@ executable = run_generate_demo.sh
 #----------------RESOURCE REQUESTS-------------------#
 
 #this will get us at least an NVIDIA A100
-gpus_minimum_capability = 8.0
+gpus_minimum_capability = 7.5
 request_gpus = 1
 request_cpus = 1
 
@@ -25,7 +25,7 @@ request_disk = 8GB
 #--------------FILE TRANSFER HANDLING-----------------#
 
 # REPLACE with the executable in your submit.sh script and any input files 
-transfer_input_files = ../../src/BIBgen/models/diffusion.py, ../../src/BIBgen/generation.py, generate_demo.py, ../training/denoiser_v0.pth
+transfer_input_files = ../../src/BIBgen/models/diffusion.py, ../../src/BIBgen/generation.py, generate_demo.py, ../noise_schedule.csv, ../training/denoiser_v4.pth
 
 # REPLACE with output files
 transfer_output_files = demo.hdf5

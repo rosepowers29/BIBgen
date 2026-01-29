@@ -7,6 +7,6 @@ export PYTHONPATH=$PYTHONPATH:/opt/conda/lib/python3.10/site-packages
 pip install h5py
 
 # REPLACE with your executable
-python train.py diffused_medium.hdf5 -c -e 101
+python train.py diffused_cyl_phipi4_medium.hdf5 noise_schedule.csv -c -e 101
 
 # END

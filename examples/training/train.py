@@ -6,6 +6,7 @@ import numpy as np
 
 parser = argparse.ArgumentParser(description="Script to train a equivariant denoising model")
 parser.add_argument("inpath")
+parser.add_argument("noise_schedule")
 parser.add_argument("-c", "--condor", action="store_true", help="Script is running in a condor job. Will import from local files.")
 parser.add_argument("-e", "--epochs", type=int, help="Number of epochs to train")
 args = parser.parse_args()
@@ -22,7 +23,9 @@ else:
 def main(args):
     inpath = args.inpath
     nepochs = args.epochs
+    schedule_path = args.noise_schedule
     assert inpath.endswith(".hdf5")
+    assert schedule_path.endswith(".csv")
 
     device = torch.device("cuda") if torch.cuda.is_available() else torch.device("cpu")
     print(f"Using {device} device")
@@ -39,12 +42,16 @@ def main(args):
         n_hidden_layers = 4
     ).to(device)
 
+    schedule = torch.from_numpy(np.loadtxt(schedule_path)).to(device)
     gaussian_nll = GaussianNLLLoss()
-    loss_fn = lambda pred, y: gaussian_nll(*pred, y)
+    loss_fn = lambda pred, y, tau: gaussian_nll(pred, schedule[tau], y)
 
-    optimizer = torch.optim.SGD(model.parameters(), lr=1e-7)
-    
-    best_val_loss = np.inf
+    optimizer = torch.optim.SGD(model.parameters(), lr=1e-9)
+    # scaler = torch.amp.GradScaler()
+
+    best_val_loss = evaluate(validation_loader, model, loss_fn, device)
+    print("Before training: Validation loss: {}".format(best_val_loss))
+
     for epoch in range(nepochs):
         train(training_loader, model, loss_fn, optimizer, device)
 

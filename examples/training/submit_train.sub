@@ -14,18 +14,18 @@ executable = run_train.sh
 #----------------RESOURCE REQUESTS-------------------#
 
 #this will get us at least an NVIDIA A100
-gpus_minimum_capability = 8.0
+gpus_minimum_capability = 7.5
 request_gpus = 1
 request_cpus = 1
 
 #change as appropriate
-request_memory = 32GB
-request_disk = 8GB
+request_memory = 16GB
+request_disk = 32GB
 
 #--------------FILE TRANSFER HANDLING-----------------#
 
 # REPLACE with the executable in your submit.sh script and any input files 
-transfer_input_files = ../../src/BIBgen/loss_function/gaussian_nll.py, ../../src/BIBgen/training.py, ../../src/BIBgen/models/diffusion.py, train.py, osdf:///ospool/uc-shared/project/futurecolliders/maxzhao/diffused_medium.hdf5
+transfer_input_files = ../../src/BIBgen/loss_function/gaussian_nll.py, ../../src/BIBgen/training.py, ../../src/BIBgen/models/diffusion.py, train.py, ../noise_schedule.csv, osdf:///ospool/uc-shared/project/futurecolliders/maxzhao/diffused_cyl_phipi4_medium.hdf5
 
 # REPLACE with output files
 transfer_output_files = denoiser.pth
