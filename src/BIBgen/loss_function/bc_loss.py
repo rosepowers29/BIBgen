@@ -8,7 +8,7 @@ import torch
 
 class BoundaryConditionLoss(torch.nn.Module):
     """
-    Docstring for BoundaryConditionLoss
+    Calculates loss based on simple geometric deviation from detector bounds.
     """
 
 

@@ -7,7 +7,8 @@ from bc_loss import BoundaryConditionLoss
 
 class TotalLoss(torch.nn.Module):
     """
-    Docstring for TotalLoss
+    Adds loss from gaussian NLL model and boundary condition penalty.
+    Weights can be introduced as needed.
     """
     
     def __init__(self, eps=1e-6):
@@ -16,20 +17,23 @@ class TotalLoss(torch.nn.Module):
 
     def forward(self, pred, variance, actual, subdet="ecal", barrel=True, bc_weight = 1.):
         """
-        Docstring for forward
+        Calls gaussian and BC penalty loss methods and adds the two values together, with optional weighting.
         
-        :param self: Description
-        :param pred: Description
-        :param variance: Description
-        :param actual: Description
-        :param subdet: Description
-        :param barrel: Description
-        :param bc_weight: Description
+        Arguments:
+        pred (torch tensor): the predicted mean of each hit (N, 4)
+        variance (torch tensor): predicted variances (N, 4) 
+        actual (torch tensor): ground truth (N, 4)
+        subdet (string, default="ecal"): the subdetector we are modeling
+        barrel (boolean, default = True): toggle between barrel and endcap
+        bc_weight (float, default = 1.0): optional weight parameter for the BC penalty loss
+
+        Returns:
+        loss_tot (double): total loss
         """
         gnll_loss = GaussianNLLLoss()
-        gaus = gnll_loss.forward(pred, variance, actual)
+        gaus = gnll_loss(pred, variance, actual)
         bcond_loss = BoundaryConditionLoss()
-        bc = bcond_loss.forward(pred, subdet, barrel)
+        bc = bcond_loss(pred, subdet, barrel)
 
         loss_tot = gaus + bc * bc_weight
 
