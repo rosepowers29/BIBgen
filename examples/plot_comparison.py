@@ -16,26 +16,35 @@ def main(args):
         mu = np.array(mcfile["transformation/mu"])
         std = np.array(mcfile["transformation/std"])
 
-        test_events = list(mcfile["test"].keys())
-        mcdata = np.array(mcfile["test/" + test_events[0] + "/tau0"])
+        # test_events = list(mcfile["test"].keys())
+        mcdata = {event_id : np.array(mcfile["test/" + event_id + "/tau0"]) for event_id in mcfile["test"].keys()}
 
-    print("mc nhits =", len(mcdata))
+    # print("mc nhits =", len(mcdata))
 
     with h5py.File(genpath, "r") as genfile:
-        print(genfile)
         gendata = {event_id : np.array(genfile[event_id]) for event_id in genfile.keys()}
 
-    for event_id in gendata:
-        analyzer = BIBgenHistogramAnalyzer(outpath)
-        mc_vars = analyzer.load_from_model_output(mcdata, is_sphered=False)
-        gen_vars = analyzer.load_from_model_output(gendata[event_id], sphering=Sphering(mu, std))
+    aggr_gendata = np.concatenate(list(gendata.values()))
+    aggr_mcdata = np.concatenate(list(mcdata.values()))
 
-        analyzer.plot_overlay_comparison(mc_vars, gen_vars, prefix=event_id)
-        analyzer.plot_eta_phi_2d(mc_vars, prefix="mc")
-        analyzer.plot_eta_phi_2d(gen_vars, prefix="gen")
-        analyzer.plot_delta_r_clustering(mc_vars, prefix="mc")
-        analyzer.plot_delta_r_clustering(gen_vars, prefix="gen")
-        break
+    analyzer = BIBgenHistogramAnalyzer(
+        energy_range = (0, 0.004),
+        phi_range = (-1.0, 1.0),
+        eta_range = (-1.3, 1.3),
+        s_range = (1800, 2250),
+        z_range = (-2800, 2800),
+        output_dir = outpath
+    )
+    mc_vars = analyzer.load_from_model_output(aggr_mcdata, is_sphered=False)
+    gen_vars = analyzer.load_from_model_output(aggr_gendata, sphering=Sphering(mu, std))
+
+    analyzer.plot_overlay_comparison(mc_vars, gen_vars, prefix="aggr", normalized=False)
+    analyzer.plot_eta_phi_2d(mc_vars, prefix="mc", bins=50)
+    analyzer.plot_eta_phi_2d(gen_vars, prefix="gen", bins=50)
+    analyzer.plot_s_eta_2d(mc_vars, prefix="mc", bins=50)
+    analyzer.plot_s_eta_2d(gen_vars, prefix="gen", bins=50)
+    analyzer.plot_delta_r_clustering(mc_vars, prefix="mc")
+    analyzer.plot_delta_r_clustering(gen_vars, prefix="gen")
 
     # noise_vars = analyzer.load_from_model_output(np.random.normal(size=(len(mcdata), 4)), sphering=Sphering(mu, std))
     # analyzer.plot_overlay_comparison(mc_vars, noise_vars, prefix="noise")
@@ -43,7 +52,7 @@ def main(args):
     return 0
 
 if __name__ == "__main__":
-    # uv run plot_comparison.py ../data/raw_cyl_phipi4_medium.hdf5 generation/demo_v4_n5077.hdf5
+    # uv run plot_comparison.py ../data/raw_cyl_phipi4_medium.hdf5 generation/like_v6.hdf5
     parser = argparse.ArgumentParser()
     parser.add_argument("mc_file")
     parser.add_argument("gen_file")

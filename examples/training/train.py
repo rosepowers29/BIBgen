@@ -9,21 +9,23 @@ parser.add_argument("inpath")
 parser.add_argument("noise_schedule")
 parser.add_argument("-c", "--condor", action="store_true", help="Script is running in a condor job. Will import from local files.")
 parser.add_argument("-e", "--epochs", type=int, help="Number of epochs to train")
+parser.add_argument("-b", "--batch-size", type=int, help="Batch size")
 args = parser.parse_args()
 
 if args.condor:
     from diffusion import EquivariantDenoiser
-    from gaussian_nll import GaussianNLLLoss
-    from training import DataLoader, train, evaluate
+    from losses import GaussianNLLLoss
+    from training import BatchedDataLoader, train, evaluate
 else:
     from BIBgen.models import EquivariantDenoiser
-    from BIBgen.loss_function import GaussianNLLLoss
-    from BIBgen.training import DataLoader, train, evaluate
+    from BIBgen.losses import GaussianNLLLoss
+    from BIBgen.training import BatchedDataLoader, train, evaluate
 
 def main(args):
     inpath = args.inpath
     nepochs = args.epochs
     schedule_path = args.noise_schedule
+    batch_size = args.batch_size
     assert inpath.endswith(".hdf5")
     assert schedule_path.endswith(".csv")
 
@@ -31,11 +33,11 @@ def main(args):
     print(f"Using {device} device")
 
     infile = h5py.File(inpath, "r")
-    training_loader = DataLoader(infile, "training")
-    validation_loader = DataLoader(infile, "validation")
+    training_loader = BatchedDataLoader(infile, "training", batch_size=batch_size)
+    validation_loader = BatchedDataLoader(infile, "validation", batch_size=batch_size)
 
     model = EquivariantDenoiser(
-        n_timesteps = 100,
+        n_timesteps = training_loader.ntau,
         tau_encoding_dimension = 32,
         position_encoding_dimension = 64,
         hidden_layer_size = 256,

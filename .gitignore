@@ -228,3 +228,6 @@ __marimo__/
 *.png
 private
 *.txt
+
+# Test size files
+*test_sizes*

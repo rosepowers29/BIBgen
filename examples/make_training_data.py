@@ -9,7 +9,7 @@ from BIBgen.preprocessing import Sphering
 def main(args):
     """
     Example:
-    uv run make_training_data.py /scratch/rosep8/BIBgen/src/BIBgen/sim_mm_0_1000.hdf5 /scratch/rosep8/BIBgen/src/BIBgen/sim_mp_0_1000.hdf5 -o raw_cyl_phipi4_medium.hdf5 -s 70,20,10 -c -p 0.785398
+    uv run make_training_data.py /scratch/rosep8/BIBgen/src/BIBgen/sim_mm_0_1000.hdf5 /scratch/rosep8/BIBgen/src/BIBgen/sim_mp_0_1000.hdf5 -o raw_cyl_phipi4_large.hdf5 -s 700,200,100 -c -p 0.785398
     """
     mm_path = args.mm_path
     mp_path = args.mp_path

@@ -39,14 +39,12 @@ class GaussianNLLLoss(nn.Module):
         
         # (actual - mu)^2 / variance
         squared_error = (actual - mu) ** 2
-        normalized_error = squared_error / variance
+        variance = variance.unsqueeze(-1).unsqueeze(-1).expand(*variance.shape, *squared_error.shape[-2:])
+        normalized_error = (squared_error / variance)
         
         # log(variance)
         log_variance = torch.log(variance)
         
         # NLL = 0.5 * (log(2pi) + log(variance) + normalized_error)
         loss = 0.5 * (1.8378770664093453 + log_variance + normalized_error)
-    
-        ret = loss.mean()
-
-        return loss.mean()
+        return loss.mean(dim=(1, 2)).sum(dim=0) if loss.dim() > 2 else loss.mean()
