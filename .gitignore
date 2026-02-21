@@ -230,4 +230,4 @@ private
 *.txt
 
 # Test size files
-*test_sizes*
+*test_sizes*.csv
