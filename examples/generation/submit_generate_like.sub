@@ -25,7 +25,7 @@ request_disk = 4GB
 #--------------FILE TRANSFER HANDLING-----------------#
 
 # REPLACE with the executable in your submit.sh script and any input files 
-transfer_input_files = ../../src/BIBgen/models/diffusion.py, ../../src/BIBgen/generation.py, generate_like.py, ../noise_schedule.csv, test_sizes_large.csv, ../training/denoiser_v7.pth
+transfer_input_files = ../../src/BIBgen/models/diffusion.py, ../../src/BIBgen/generation.py, generate_like.py, ../noise_schedule.csv, test_sizes_large.csv, ../training/denoiser.pth
 
 # REPLACE with output files
 transfer_output_files = like.hdf5
