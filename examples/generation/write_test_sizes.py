@@ -20,7 +20,7 @@ def main(args):
 if __name__ == "__main__":
     # uv run write_test_sizes.py ../../data/raw_cyl_phipi4_medium.hdf5 -o test_sizes_medium.csv
     # uv run write_test_sizes.py ../../data/raw_cyl_phipi4_large.hdf5 -o test_sizes_large.csv
-    parser = argparse.ArgumentParser()
-    parser.add_argument("raw_file")
-    parser.add_argument("-o", "--out", default="test_sizes.csv")
+    parser = argparse.ArgumentParser(description="Write out sizes of test events into a file.")
+    parser.add_argument("raw_file", help="Preprocessed data before foward diffusion")
+    parser.add_argument("-o", "--out", default="test_sizes.csv", help="Path to output as. Must be .csv")
     print("\nFinished with exit code:", main(parser.parse_args()))
