@@ -5,9 +5,9 @@ import torch
 import numpy as np
 
 parser = argparse.ArgumentParser(description="Script to train a equivariant denoising model")
-parser.add_argument("inpath")
-parser.add_argument("noise_schedule")
-parser.add_argument("-c", "--condor", action="store_true", help="Script is running in a condor job. Will import from local files.")
+parser.add_argument("inpath", help="Diffused training data")
+parser.add_argument("noise_schedule", help"Noise schedule of forward diffusion process")
+parser.add_argument("-c", "--condor", action="store_true", help="Script is running in a condor job. Affects import paths.")
 parser.add_argument("-e", "--epochs", type=int, help="Number of epochs to train")
 parser.add_argument("-b", "--batch-size", type=int, help="Batch size")
 args = parser.parse_args()
