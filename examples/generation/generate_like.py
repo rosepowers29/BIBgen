@@ -6,12 +6,12 @@ import h5py
 import torch
 import numpy as np
 
-parser = argparse.ArgumentParser(description="Generates demo events with a trained model with a specific number of hits")
-parser.add_argument("model_path")
-parser.add_argument("noise_schedule")
-parser.add_argument("size_file")
+parser = argparse.ArgumentParser(description="Generates demo events with a trained model of sizes provided by size_file")
+parser.add_argument("model_path", help="Path to model weights .pth file")
+parser.add_argument("noise_schedule", help="Path to noise schedule used in foward diffusion")
+parser.add_argument("size_file", help="Path to file containing sizes of events to generate")
 parser.add_argument("-c", "--condor", action="store_true", help="Script is running in a condor job. Will import from local files.")
-parser.add_argument("-o", "--out", default="like.hdf5")
+parser.add_argument("-o", "--out", default="like.hdf5", help="Path to output generate events")
 args = parser.parse_args()
 
 if args.condor:
