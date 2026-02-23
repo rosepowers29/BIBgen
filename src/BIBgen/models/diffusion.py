@@ -20,7 +20,7 @@ class FourierEncoding(nn.Module):
             but create more trainable parameters.
         initial_frequencies : torch.Tensor, optional
             Initial values to initiate learnable frequencies. Size must be half of `dimension`
-            If not provided, `0.5**torch.linspace(1, 16, dimension)` is used to initialize.
+            If not provided, `torch.arange(1, dimension // 2 + 1)` is used to initialize.
         learned : bool, optional
             To toggle to hard-coded frequencies. Currently not supported.
 
@@ -46,6 +46,7 @@ class FourierEncoding(nn.Module):
 
         if initial_frequencies is None:
             initial_frequencies = torch.arange(1, half_dimension+1, dtype=torch.float32)
+        initial_frequencies = initial_frequencies.unsqueeze(0) # (1, dimension / 2)
 
         self.frequency_table = nn.Parameter(data=initial_frequencies)
 
@@ -59,17 +60,17 @@ class FourierEncoding(nn.Module):
         ----------
         x : torch.Tensor
             Tensor of scalar inputs to be encoded in fourier vector representation,
-            with dimension `(n_members,)`
+            with dimension `(n_batch, n_members)` or `(n_members,)`
 
         Returns
         -------
         x_fourier : torch.Tensor
-            Tensor of fourier vector representation with dimension `(n_members, dimension)`
+            Tensor of fourier vector representation with dimension `(n_batch, n_members, dimension)` or `(n_members, dimension)`
         """
-        thetas = torch.outer(x, self.frequency_table)
+        thetas = x.unsqueeze(-1) @ self.frequency_table
         sin_elems = torch.sin(thetas)
         cos_elems = torch.cos(thetas)
-        return torch.cat((sin_elems, cos_elems), dim=1)
+        return torch.cat((sin_elems, cos_elems), dim=-1)
 
 class VarianceTower(nn.Module):
     SP_BETA = 1.0
@@ -141,10 +142,6 @@ class EquivariantLayer(nn.Module):
         """
         super().__init__()
 
-        # self.lambda_mat = nn.Parameter(torch.rand((output_size, input_size)))
-        # self.gamma_mat = nn.Parameter(torch.rand(((output_size, input_size))))
-        # self.bias_vec = nn.Parameter(torch.rand(output_size))
-
         self.lambda_mat = nn.Parameter(torch.empty(output_size, input_size))
         self.gamma_mat = nn.Parameter(torch.empty(output_size, input_size))
         self.bias_vec = nn.Parameter(torch.zeros(output_size))
@@ -160,36 +157,22 @@ class EquivariantLayer(nn.Module):
         Parameters
         ----------
         input_set : torch.Tensor
-            Input set with shape (n_members, input_size)
+            Input set with shape (n_batch, n_members, input_size) or (n_members, input_size)
 
         Returns
         -------
         output_set : torch.Tensor
-            Output set with shape (n_members, output_size)
+            Output set with shape (n_batch, n_members, output_size) or (n_members, output_size)
         """
-        # lambda_mat = self.lambda_mat.to(device=input_set.device, dtype=input_set.device)
-        # gamma_mat = self.gamma_mat.to(device=input_set.device, dtype=input_set.device)
-        # bias_vec = self.bias_vec.to(device=input_set.device, dtype=input_set.device)
+        n_members = input_set.size()[-2]
+        x = input_set.unsqueeze(-1) # (n_batch, n_members, input_size, 1)
 
-        n_members = input_set.size()[0]
-        x = torch.unsqueeze(input_set, 2) # (n_members, input_size, 1)
-
-        # OLD DIRECT CALCULATION
-        # lambda_I = self.lambda_mat.expand(n_members, -1, -1) # (n_members, output_size, input_size)
-        # self_term = torch.matmul(lambda_I, x)[:,:,0] # (n_members, output_size)
-
-        # x_sum = torch.mean(x, dim=(0,2)) # (input_size) # TODO: Reconsider mean
-        # gamma_x_sum = torch.matmul(self.gamma_mat, x_sum) # (output_size)
-        # interaction_term = gamma_x_sum.expand(n_members, -1) # (n_members, output_size)
-
-        # bias_term = self.bias_vec.expand(n_members, -1) # (n_members, output_size)
-
-        # return self_term + interaction_term + bias_term
-
-        # ChatGPT writing code better than mine lol
         self_term = input_set @ self.lambda_mat.T
-        x_mean = input_set.mean(dim=0)
-        interaction = (self.gamma_mat @ x_mean).expand(n_members, -1)
+        x_mean = input_set.mean(dim=-2)
+        output_sizes = [-1] * input_set.dim()
+        output_sizes[-2] = n_members
+        interaction = (x_mean @ self.gamma_mat.T).unsqueeze(-2).expand(*output_sizes)
+        
         return self_term + interaction + self.bias_vec
 
 class EquivariantDenoiser(nn.Module):
@@ -199,6 +182,7 @@ class EquivariantDenoiser(nn.Module):
         position_encoding_dimension : int,
         hidden_layer_size : int,
         n_hidden_layers : int,
+        nhits_normalization : int = 10_000,
         predict_variances : bool = False
     ):
         """
@@ -216,6 +200,8 @@ class EquivariantDenoiser(nn.Module):
             Size of hidden equivariant layers in prediction tower
         n_hidden_layers : int
             Number of hidden layers in prediction towers
+        nhits_normalization : int
+            Number to divide the number of hits before it goes in as a feature
         betas : torch.Tensor, optional
             Diffusion schedule with shape (n_timesteps,).
             Used to initiate the variance tower.
@@ -226,8 +212,9 @@ class EquivariantDenoiser(nn.Module):
         self.pos2_encoding = FourierEncoding(position_encoding_dimension)
         self.pos3_encoding = FourierEncoding(position_encoding_dimension)
         self.tau_encoding = FourierEncoding(tau_encoding_dimension)
-        encoding_size = tau_encoding_dimension + 3 * position_encoding_dimension + 1
+        encoding_size = tau_encoding_dimension + 1 + 1 + 3 * position_encoding_dimension
         self.n_timesteps = n_timesteps
+        self.nhits_norm = nhits_normalization
 
         equivariant_layers = [
             ("hidden0", EquivariantLayer(encoding_size, hidden_layer_size)),
@@ -245,7 +232,7 @@ class EquivariantDenoiser(nn.Module):
 
         self.prediction_tower = nn.Sequential(OrderedDict(equivariant_layers))
 
-    def forward(self, input_set : torch.Tensor, tau : int):
+    def forward(self, input_set : torch.Tensor, tau : torch.Tensor):
         """
         Forward pass that predicts `tau` state of `input_set`,
         and the associated variance of the prediction.
@@ -253,30 +240,35 @@ class EquivariantDenoiser(nn.Module):
         Parameters
         ----------
         input_set : torch.Tensor
-            Input set at 'tau + 1' state with shape (n_members, 4) with features:
+            Input set at 'tau + 1' state with shape (n_batch, n_members, 4) or (n_members, 4) with features:
             (Edepm, x1, x2, x3).
-        tau : int
-            Diffusion time step of `input_set`
+        tau : torch.Tensor
+            Diffusion time step of `input_set` with shape (n_batch,) if batched.
 
         Returns
         -------
         prediction : torch.Tensor
-            Prediction of the `tau` state also with shape (n_members, 4)
+            Prediction of the `tau` state also with shape (n_batch, n_members, 4) or (n_members, 4)
         variance : float
-            Variance of all elements of the prediction.
+            Variance of all elements of the prediction if requested.
         """
-        tau_scalar = input_set.new_tensor(data=[tau / self.n_timesteps])
-        tau_encoded = self.tau_encoding(tau_scalar).expand(len(input_set), -1)
-        pos1_encoded = self.pos1_encoding(input_set[:,1])
-        pos2_encoded = self.pos2_encoding(input_set[:,2])
-        pos3_encoded = self.pos3_encoding(input_set[:,3])
-        encoded_set = torch.cat((tau_encoded, input_set[:,0:1], pos1_encoded, pos2_encoded, pos3_encoded), axis=1)
+        nhits = input_set.shape[-2]
 
+        tau_encoded = self.tau_encoding(tau / self.n_timesteps) # (n_batch, tau_encoding_dimension)
+        tau_encoded = tau_encoded.unsqueeze(-2).expand(*tau_encoded.shape[:-1], nhits, -1) # (n_batch, n_members, tau_encoding_dimension)
+    
+        pos1_encoded = self.pos1_encoding(input_set[...,1]) # (n_batch, n_members, positional_encoding_dimension)
+        pos2_encoded = self.pos2_encoding(input_set[...,2]) # (n_batch, n_members, positional_encoding_dimension)
+        pos3_encoded = self.pos3_encoding(input_set[...,3]) # (n_batch, n_members, positional_encoding_dimension)
+
+        nhits_feature = input_set.new_full((*input_set.shape[:-1], 1), nhits / self.nhits_norm) # (n_batch, n_members, 1)
+
+        encoded_set = torch.cat((tau_encoded, input_set[...,0:1], nhits_feature, pos1_encoded, pos2_encoded, pos3_encoded), axis=-1)
         out = self.prediction_tower(encoded_set)
 
         if not self.predict_variances:
             return out
 
-        prediction = out[:,:4]
-        variances = torch.nn.functional.softplus(out[:, 4:])
+        prediction = out[...,:4]
+        variances = torch.nn.functional.softplus(out[..., 4:])
         return prediction, variances

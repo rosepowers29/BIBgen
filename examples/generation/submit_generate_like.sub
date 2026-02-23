@@ -6,7 +6,7 @@ error = job_$(Cluster)_$(Process).err
 output = job_$(Cluster)_$(Process).out
 
 # bash script calling your executable along with path variables and appropriate environment setup
-executable = run_train.sh
+executable = run_generate_like.sh
 
 # REPLACE with "Long" if job is predicted to take over 40 hrs
 +JobDurationCategory = "Medium"
@@ -16,22 +16,19 @@ executable = run_train.sh
 #this will get us at least an NVIDIA A100
 gpus_minimum_capability = 7.5
 request_gpus = 1
-
-# Busted node, consider removing later
-requirements = (GLIDEIN_ResourceName =!= "ND-CAML-GPU-CE1")
 request_cpus = 1
 
 #change as appropriate
-request_memory = 4GB
-request_disk = 32GB
+request_memory = 2GB
+request_disk = 4GB
 
 #--------------FILE TRANSFER HANDLING-----------------#
 
 # REPLACE with the executable in your submit.sh script and any input files 
-transfer_input_files = ../../src/BIBgen/losses.py, ../../src/BIBgen/training.py, ../../src/BIBgen/models/diffusion.py, train.py, ../noise_schedule.csv, osdf:///ospool/uc-shared/project/futurecolliders/maxzhao/diffused_cyl_phipi4_large.hdf5
+transfer_input_files = ../../src/BIBgen/models/diffusion.py, ../../src/BIBgen/generation.py, generate_like.py, ../noise_schedule.csv, test_sizes_large.csv, ../training/denoiser.pth
 
 # REPLACE with output files
-transfer_output_files = denoiser.pth
+transfer_output_files = like.hdf5
 should_transfer_files = YES
 
 # REPLACE with however many jobs you are queuing 

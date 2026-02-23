@@ -9,7 +9,7 @@ from BIBgen.preprocessing import Sphering
 def main(args):
     """
     Example:
-    uv run make_training_data.py /scratch/rosep8/BIBgen/src/BIBgen/sim_mm_0_1000.hdf5 /scratch/rosep8/BIBgen/src/BIBgen/sim_mp_0_1000.hdf5 -o raw_cyl_phipi4_medium.hdf5 -s 70,20,10 -c -p 0.785398
+    uv run make_training_data.py /scratch/rosep8/BIBgen/src/BIBgen/sim_mm_0_1000.hdf5 /scratch/rosep8/BIBgen/src/BIBgen/sim_mp_0_1000.hdf5 -o raw_cyl_phipi4_large.hdf5 -s 700,200,100 -c -p 0.785398
     """
     mm_path = args.mm_path
     mp_path = args.mp_path
@@ -135,6 +135,6 @@ if __name__ == "__main__":
     parser.add_argument("mp_path", help="path to mu+ data")
     parser.add_argument("-o", "--out", default="raw_data.hdf5", help="path to output")
     parser.add_argument("-s", "--split", default="700,200,100", help="training,validation,test split")
-    parser.add_argument("-c", "--cylindrical", action="store_true")
-    parser.add_argument("-p", "--phi-window", default=np.pi, type=float)
+    parser.add_argument("-c", "--cylindrical", action="store_true", help="Whether the training data should be in cylindrical coordinates")
+    parser.add_argument("-p", "--phi-window", default=np.pi, type=float, help="Phi to slice the data. Data will only be kept in a slice betwee -phi and phi")
     print("\nFinished with exit code:", main(parser.parse_args()))

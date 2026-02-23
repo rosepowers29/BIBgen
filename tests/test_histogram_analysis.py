@@ -10,6 +10,13 @@ import shutil
 
 from BIBgen.analysis import BIBgenHistogramAnalyzer, compare_mc_vs_generated
 
+var_range = {
+    "energy_range" :(-0.0005, 0.005),
+    "phi_range" : (-1.0, 1.0),
+    "eta_range" : (-1.3, 1.3),
+    "s_range" : (1800, 2250),
+    "z_range" : (-2800, 2800),
+}
 
 class TestBIBgenHistogramAnalyzer:
     """Test suite for histogram analyzer."""
@@ -35,13 +42,13 @@ class TestBIBgenHistogramAnalyzer:
     
     def test_analyzer_creation(self, temp_dir):
         """Test that analyzer creates output directory."""
-        analyzer = BIBgenHistogramAnalyzer(output_dir=temp_dir)
+        analyzer = BIBgenHistogramAnalyzer(**var_range, output_dir=temp_dir)
         assert Path(temp_dir).exists()
         assert analyzer.output_dir == Path(temp_dir)
     
     def test_eta_computation(self):
         """Test pseudorapidity calculation."""
-        analyzer = BIBgenHistogramAnalyzer()
+        analyzer = BIBgenHistogramAnalyzer(**var_range)
         
         # Test forward region (positive z)
         s = np.array([100.0])
@@ -58,7 +65,7 @@ class TestBIBgenHistogramAnalyzer:
     
     def test_delta_r_computation(self):
         """Test delta R calculation."""
-        analyzer = BIBgenHistogramAnalyzer()
+        analyzer = BIBgenHistogramAnalyzer(**var_range)
         
         eta1 = np.array([0.0, 1.0])
         phi1 = np.array([0.0, 0.0])
@@ -76,7 +83,7 @@ class TestBIBgenHistogramAnalyzer:
     
     def test_delta_r_cone_counting(self, sample_hits):
         """Test neighbor counting in delta R cone."""
-        analyzer = BIBgenHistogramAnalyzer()
+        analyzer = BIBgenHistogramAnalyzer(**var_range)
         
         # Use small sample to speed up test
         small_hits = {k: v[:100] for k, v in sample_hits.items()}
@@ -93,7 +100,7 @@ class TestBIBgenHistogramAnalyzer:
     
     def test_plot_basic_observables(self, sample_hits, temp_dir):
         """Test basic observable plotting."""
-        analyzer = BIBgenHistogramAnalyzer(output_dir=temp_dir)
+        analyzer = BIBgenHistogramAnalyzer(**var_range, output_dir=temp_dir)
         analyzer.plot_basic_observables(sample_hits, prefix="test")
         
         output_file = Path(temp_dir) / "test_basic_observables.png"
@@ -101,7 +108,7 @@ class TestBIBgenHistogramAnalyzer:
     
     def test_plot_eta_phi_2d(self, sample_hits, temp_dir):
         """Test 2D eta-phi plotting."""
-        analyzer = BIBgenHistogramAnalyzer(output_dir=temp_dir)
+        analyzer = BIBgenHistogramAnalyzer(**var_range, output_dir=temp_dir)
         analyzer.plot_eta_phi_2d(sample_hits, prefix="test")
         
         output_file = Path(temp_dir) / "test_eta_phi_2d.png"
@@ -109,7 +116,7 @@ class TestBIBgenHistogramAnalyzer:
     
     def test_plot_delta_r_clustering(self, sample_hits, temp_dir):
         """Test delta R clustering plots."""
-        analyzer = BIBgenHistogramAnalyzer(output_dir=temp_dir)
+        analyzer = BIBgenHistogramAnalyzer(**var_range, output_dir=temp_dir)
         
         # Use small sample for speed
         small_hits = {k: v[:200] for k, v in sample_hits.items()}
@@ -125,7 +132,7 @@ class TestBIBgenHistogramAnalyzer:
     
     def test_generate_all_histograms(self, sample_hits, temp_dir):
         """Test that all histograms are generated."""
-        analyzer = BIBgenHistogramAnalyzer(output_dir=temp_dir)
+        analyzer = BIBgenHistogramAnalyzer(**var_range, output_dir=temp_dir)
         
         small_hits = {k: v[:200] for k, v in sample_hits.items()}
         analyzer.generate_all_histograms(small_hits, prefix="test")
@@ -137,7 +144,7 @@ class TestBIBgenHistogramAnalyzer:
     
     def test_overlay_comparison(self, sample_hits, temp_dir):
         """Test overlay comparison plotting."""
-        analyzer = BIBgenHistogramAnalyzer(output_dir=temp_dir)
+        analyzer = BIBgenHistogramAnalyzer(**var_range, output_dir=temp_dir)
         
         # Create slightly different generated data
         gen_hits = sample_hits.copy()
@@ -150,7 +157,7 @@ class TestBIBgenHistogramAnalyzer:
     
     def test_load_from_model_output_unsphered(self):
         """Test loading unsphered model output."""
-        analyzer = BIBgenHistogramAnalyzer()
+        analyzer = BIBgenHistogramAnalyzer(**var_range)
         
         # Create fake model output
         n_hits = 100
@@ -175,7 +182,7 @@ class TestBIBgenHistogramAnalyzer:
         gen_hits = sample_hits.copy()
         gen_hits['energy'] = gen_hits['energy'] * 0.9
         
-        compare_mc_vs_generated(sample_hits, gen_hits, output_dir=temp_dir, overlay=True)
+        compare_mc_vs_generated(sample_hits, gen_hits, output_dir=temp_dir, overlay=True, **var_range)
         
         assert (Path(temp_dir) / "comparison_overlay.png").exists()
     
@@ -183,14 +190,14 @@ class TestBIBgenHistogramAnalyzer:
         """Test comparison function with separate plots."""
         gen_hits = sample_hits.copy()
         
-        compare_mc_vs_generated(sample_hits, gen_hits, output_dir=temp_dir, overlay=False)
+        compare_mc_vs_generated(sample_hits, gen_hits, output_dir=temp_dir, overlay=False, **var_range)
         
         assert (Path(temp_dir) / "mc_truth_basic_observables.png").exists()
         assert (Path(temp_dir) / "generated_basic_observables.png").exists()
     
     def test_handles_nan_in_eta(self, temp_dir):
         """Test that code handles NaN values in eta."""
-        analyzer = BIBgenHistogramAnalyzer(output_dir=temp_dir)
+        analyzer = BIBgenHistogramAnalyzer(**var_range, output_dir=temp_dir)
         
         hits = {
             'energy': np.array([1.0, 2.0, 3.0]),
@@ -210,7 +217,7 @@ class TestEdgeCases:
     
     def test_empty_hits(self):
         """Test behavior with empty hit arrays."""
-        analyzer = BIBgenHistogramAnalyzer()
+        analyzer = BIBgenHistogramAnalyzer(**var_range)
         
         empty_hits = {
             'energy': np.array([]),
@@ -226,7 +233,7 @@ class TestEdgeCases:
     
     def test_single_hit(self):
         """Test with single hit."""
-        analyzer = BIBgenHistogramAnalyzer()
+        analyzer = BIBgenHistogramAnalyzer(**var_range)
         
         single_hit = {
             'energy': np.array([1.0]),

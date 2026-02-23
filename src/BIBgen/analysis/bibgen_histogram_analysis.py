@@ -14,7 +14,20 @@ from pathlib import Path
 class BIBgenHistogramAnalyzer:
     """Histogram analyzer for BIB detector hits in cylindrical coordinates."""
     
-    def __init__(self, output_dir: str = "histograms"):
+    def __init__(self,
+        energy_range : tuple,
+        phi_range : tuple,
+        eta_range : tuple,
+        s_range : tuple,
+        z_range : tuple,
+        output_dir : str = "histograms"
+    ):
+        self.energy_range = energy_range
+        self.phi_range = phi_range
+        self.eta_range = eta_range
+        self.s_range = s_range
+        self.z_range = z_range
+
         self.output_dir = Path(output_dir)
         self.output_dir.mkdir(parents=True, exist_ok=True)
     
@@ -281,26 +294,34 @@ class BIBgenHistogramAnalyzer:
         plt.tight_layout()
         plt.savefig(self.output_dir / f"{prefix}_basic_observables.png", dpi=300, bbox_inches='tight')
         plt.close()
+
+    def _plot_2d(self, var1, var2, range1, range2, label1, label2, title, bins, outfile):
+        fig, ax = plt.subplots(figsize=(10, 8))
+
+        h = ax.hist2d(var1, var2, bins=bins, cmap='viridis', cmin=1, range=(range1, range2))
+        plt.colorbar(h[3], ax=ax, label='Hits')
+        
+        ax.set_xlabel(label1, fontsize=12)
+        ax.set_ylabel(label2, fontsize=12)
+        ax.set_title(title, fontsize=14, fontweight='bold')
+        ax.set_ylim(*range2)
+        ax.set_xlim(*range1)
+        ax.grid(True, alpha=0.3)
+        
+        plt.tight_layout()
+        plt.savefig(self.output_dir / outfile, dpi=300, bbox_inches='tight')
+        plt.close()
     
     def plot_eta_phi_2d(self, hits: Dict[str, np.ndarray],
                         prefix: str = "bib",
                         bins: int = 100):
         """Generate 2D histogram of eta vs phi."""
-        fig, ax = plt.subplots(figsize=(10, 8))
-        
-        h = ax.hist2d(hits['eta'], hits['phi'], bins=bins, cmap='viridis', cmin=1)
-        plt.colorbar(h[3], ax=ax, label='Hits')
-        
-        ax.set_xlabel('η', fontsize=12)
-        ax.set_ylabel('φ [rad]', fontsize=12)
-        ax.set_title('Hit Distribution in η-φ Space', fontsize=14, fontweight='bold')
-        ax.set_ylim(-np.pi, np.pi)
-        ax.set_xlim(-3, 3)
-        ax.grid(True, alpha=0.3)
-        
-        plt.tight_layout()
-        plt.savefig(self.output_dir / f"{prefix}_eta_phi_2d.png", dpi=300, bbox_inches='tight')
-        plt.close()
+        self._plot_2d(hits['eta'], hits['phi'], self.eta_range, self.phi_range, 'η', 'φ [rad]', 'Hit Distribution in η-φ Space', bins, f"{prefix}_eta_phi_2d.png")
+
+    def plot_s_eta_2d(self, hits: Dict[str, np.ndarray],
+                        prefix: str = "bib",
+                        bins: int = 100):
+        self._plot_2d(hits['s'], hits['eta'], self.s_range, self.eta_range, 's [mm]', 'η', 'Hit Distribution in s-η Space', bins, f"{prefix}_s_eta_2d.png")
     
     def plot_delta_r_clustering(self, hits: Dict[str, np.ndarray],
                                 prefix: str = "bib",
@@ -352,7 +373,8 @@ class BIBgenHistogramAnalyzer:
                                 gen_hits: Dict[str, np.ndarray],
                                 prefix: str = "comparison",
                                 bins: int = 100,
-                                normalized : bool = True):
+                                normalized : bool = True,
+                                log_scale : bool = True):
         """Plot MC and generated data overlayed on same axes."""
         
         fig, axes = plt.subplots(2, 3, figsize=(18, 12))
@@ -360,27 +382,25 @@ class BIBgenHistogramAnalyzer:
         
         # Energy
         axes[0, 0].hist(mc_hits['energy'], bins=bins, histtype='step', linewidth=2, 
-                       label='MC', color='blue', alpha=0.7, density=normalized)
+                       label='MC', color='blue', alpha=0.7, density=normalized, range=self.energy_range)
         axes[0, 0].hist(gen_hits['energy'], bins=bins, histtype='step', linewidth=2, 
-                       label='Generated', color='red', alpha=0.7, density=normalized)
+                       label='Generated', color='red', alpha=0.7, density=normalized, range=self.energy_range)
         axes[0, 0].set_xlabel('Energy [GeV]', fontsize=12)
         axes[0, 0].set_ylabel('Counts', fontsize=12)
         axes[0, 0].set_title('Energy', fontsize=13, fontweight='bold')
-        axes[0, 0].set_yscale('log')
-        axes[0, 0].set_xlim(0, 0.005)
+        axes[0, 0].set_xlim(*self.energy_range)
         axes[0, 0].legend()
         axes[0, 0].grid(True, alpha=0.3)
         
         # Phi
-        phi_range = (-1.0, 1.0)
         axes[0, 1].hist(mc_hits['phi'], bins=bins, histtype='step', linewidth=2,
-                       label='MC', color='blue', alpha=0.7, range=phi_range, density=normalized)
+                       label='MC', color='blue', alpha=0.7, range=self.phi_range, density=normalized)
         axes[0, 1].hist(gen_hits['phi'], bins=bins, histtype='step', linewidth=2,
-                       label='Generated', color='red', alpha=0.7, range=phi_range, density=normalized)
+                       label='Generated', color='red', alpha=0.7, range=self.phi_range, density=normalized)
         axes[0, 1].set_xlabel('φ [rad]', fontsize=12)
         axes[0, 1].set_ylabel('Counts', fontsize=12)
         axes[0, 1].set_title('φ', fontsize=13, fontweight='bold')
-        axes[0, 1].set_xlim(*phi_range)
+        axes[0, 1].set_xlim(*self.phi_range)
         axes[0, 1].legend()
         axes[0, 1].grid(True, alpha=0.3)
         
@@ -388,40 +408,46 @@ class BIBgenHistogramAnalyzer:
         eta_mc = mc_hits['eta'][np.isfinite(mc_hits['eta'])]
         eta_gen = gen_hits['eta'][np.isfinite(gen_hits['eta'])]
         axes[0, 2].hist(eta_mc, bins=bins, histtype='step', linewidth=2,
-                       label='MC', color='blue', alpha=0.7, density=normalized)
+                       label='MC', color='blue', alpha=0.7, density=normalized, range=self.eta_range)
         axes[0, 2].hist(eta_gen, bins=bins, histtype='step', linewidth=2,
-                       label='Generated', color='red', alpha=0.7, density=normalized)
+                       label='Generated', color='red', alpha=0.7, density=normalized, range=self.eta_range)
         axes[0, 2].set_xlabel('η', fontsize=12)
         axes[0, 2].set_ylabel('Counts', fontsize=12)
         axes[0, 2].set_title('η', fontsize=13, fontweight='bold')
-        axes[0, 2].set_xlim(-1.5, 1.5)
+        axes[0, 2].set_xlim(*self.eta_range)
         axes[0, 2].legend()
         axes[0, 2].grid(True, alpha=0.3)
         
         # Radial
         axes[1, 0].hist(mc_hits['s'], bins=bins, histtype='step', linewidth=2,
-                       label='MC', color='blue', alpha=0.7, density=normalized)
+                       label='MC', color='blue', alpha=0.7, density=normalized, range=self.s_range)
         axes[1, 0].hist(gen_hits['s'], bins=bins, histtype='step', linewidth=2,
-                       label='Generated', color='red', alpha=0.7, density=normalized)
+                       label='Generated', color='red', alpha=0.7, density=normalized, range=self.s_range)
         axes[1, 0].set_xlabel('s [mm]', fontsize=12)
         axes[1, 0].set_ylabel('Counts', fontsize=12)
         axes[1, 0].set_title('Radial', fontsize=13, fontweight='bold')
-        axes[1, 0].set_yscale('log')
-        axes[1, 0].set_xlim(1700, 2300)
+        axes[1, 0].set_xlim(*self.s_range)
         axes[1, 0].legend()
         axes[1, 0].grid(True, alpha=0.3)
         
         # Z
         axes[1, 1].hist(mc_hits['z'], bins=bins, histtype='step', linewidth=2,
-                       label='MC', color='blue', alpha=0.7, density=normalized)
+                       label='MC', color='blue', alpha=0.7, density=normalized, range=self.z_range)
         axes[1, 1].hist(gen_hits['z'], bins=bins, histtype='step', linewidth=2,
-                       label='Generated', color='red', alpha=0.7, density=normalized)
+                       label='Generated', color='red', alpha=0.7, density=normalized, range=self.z_range)
         axes[1, 1].set_xlabel('z [mm]', fontsize=12)
         axes[1, 1].set_ylabel('Counts', fontsize=12)
         axes[1, 1].set_title('Z Position', fontsize=13, fontweight='bold')
-        axes[1, 1].set_xlim(-2800, 2800)
+        axes[1, 1].set_xlim(*self.z_range)
         axes[1, 1].legend()
         axes[1, 1].grid(True, alpha=0.3)
+
+        if log_scale:
+            axes[0, 0].set_yscale('log')
+            axes[0, 1].set_yscale('log')
+            axes[0, 2].set_yscale('log')
+            axes[1, 0].set_yscale('log')
+            axes[1, 1].set_yscale('log')
         
         # Stats
         axes[1, 2].axis('off')
@@ -452,9 +478,9 @@ class BIBgenHistogramAnalyzer:
 def compare_mc_vs_generated(mc_hits: Dict[str, np.ndarray],
                            gen_hits: Dict[str, np.ndarray],
                            output_dir: str = "comparison",
-                           overlay: bool = True):
+                           overlay: bool = True, **kwargs):
     """Compare MC vs generated. Set overlay=False for separate plots."""
-    analyzer = BIBgenHistogramAnalyzer(output_dir=output_dir)
+    analyzer = BIBgenHistogramAnalyzer(output_dir=output_dir, **kwargs)
     
     if overlay:
         analyzer.plot_overlay_comparison(mc_hits, gen_hits)
