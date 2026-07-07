@@ -28,7 +28,7 @@ request_disk = 32GB
 #--------------FILE TRANSFER HANDLING-----------------#
 
 # REPLACE with the executable in your submit.sh script and any input files 
-transfer_input_files = ../../src/BIBgen/losses.py, ../../src/BIBgen/training.py, ../../src/BIBgen/models/diffusion.py, train.py, ../noise_schedule.csv, osdf:///ospool/uc-shared/project/futurecolliders/maxzhao/diffused_cyl_phipi4_large.hdf5
+transfer_input_files = train.py, ../../src, ../../config, osdf:///ospool/uc-shared/project/futurecolliders/maxzhao/diffused_cyl_phipi4_large.hdf5
 
 # REPLACE with output files
 transfer_output_files = denoiser.pth

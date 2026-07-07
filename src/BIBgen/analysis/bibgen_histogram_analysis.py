@@ -323,6 +323,15 @@ class BIBgenHistogramAnalyzer:
                         bins: int = 100):
         self._plot_2d(hits['s'], hits['eta'], self.s_range, self.eta_range, 's [mm]', 'η', 'Hit Distribution in s-η Space', bins, f"{prefix}_s_eta_2d.png")
     
+    def plot_clustering_comparison(self
+        mc_hits: Dict[str, np.ndarray],
+        gen_hits: Dict[str, np.ndarray],
+        prefix : str = "bib",
+        max_hits_sample: int = 10000,
+        bins : int = 50
+    ):
+        
+
     def plot_delta_r_clustering(self, hits: Dict[str, np.ndarray],
                                 prefix: str = "bib",
                                 delta_r_values: List[float] = [0.1, 0.2, 0.4, 0.6],

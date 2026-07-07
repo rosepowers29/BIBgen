@@ -6,26 +6,16 @@ import h5py
 import torch
 import numpy as np
 
-parser = argparse.ArgumentParser(description="Generates demo events with a trained model of sizes provided by size_file")
-parser.add_argument("model_path", help="Path to model weights .pth file")
-parser.add_argument("noise_schedule", help="Path to noise schedule used in foward diffusion")
-parser.add_argument("size_file", help="Path to file containing sizes of events to generate")
-parser.add_argument("-c", "--condor", action="store_true", help="Script is running in a condor job. Will import from local files.")
-parser.add_argument("-o", "--out", default="like.hdf5", help="Path to output generate events")
-args = parser.parse_args()
-
-if args.condor:
-    from diffusion import EquivariantDenoiser
-    from generation import generate_sphered
-else:
-    from BIBgen.models import EquivariantDenoiser
-    from BIBgen.generation import generate_sphered
+from BIBgen.models import EquivariantDenoiser
+from BIBgen.generation import generate_sphered
+from BIBgen.training import load_empty_model
 
 def main(args):
     model_path = args.model_path
     schedule_path = args.noise_schedule
     size_path = args.size_file
     outpath = args.out
+    model_config_path = args.model_config
     assert model_path.endswith(".pth")
     assert schedule_path.endswith(".csv")
     assert size_path.endswith(".csv")
@@ -38,13 +28,7 @@ def main(args):
     test_event_ids, sizes = np.loadtxt(size_path, delimiter=",", unpack=True, dtype=str)
     sizes = sizes.astype(int)
     
-    model = EquivariantDenoiser(
-        n_timesteps = 100,
-        tau_encoding_dimension = 32,
-        position_encoding_dimension = 64,
-        hidden_layer_size = 256,
-        n_hidden_layers = 4
-    )
+    model = load_empty_model(model_config_path, len(schedule)).to(device)
     model.load_state_dict(torch.load(model_path, weights_only=True))
     
     with h5py.File(outpath, "w") as fout:
@@ -56,4 +40,10 @@ def main(args):
     return 0
 
 if __name__ == "__main__":
-    print("\nFinished with exit code:", main(args))
+    parser = argparse.ArgumentParser(description="Generates demo events with a trained model of sizes provided by size_file")
+    parser.add_argument("model_path", help="Path to model weights .pth file")
+    parser.add_argument("model_config", help="json file specifying model name and hyperparameters")
+    parser.add_argument("noise_schedule", help="Path to noise schedule used in foward diffusion")
+    parser.add_argument("size_file", help="Path to file containing sizes of events to generate")
+    parser.add_argument("-o", "--out", default="like.hdf5", help="Path to output generate events")
+    print("\nFinished with exit code:", main(parser.parse_args()))

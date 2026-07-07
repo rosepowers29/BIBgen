@@ -13,7 +13,6 @@ executable = run_generate_like.sh
 
 #----------------RESOURCE REQUESTS-------------------#
 
-#this will get us at least an NVIDIA A100
 gpus_minimum_capability = 7.5
 request_gpus = 1
 request_cpus = 1
@@ -25,7 +24,7 @@ request_disk = 4GB
 #--------------FILE TRANSFER HANDLING-----------------#
 
 # REPLACE with the executable in your submit.sh script and any input files 
-transfer_input_files = ../../src/BIBgen/models/diffusion.py, ../../src/BIBgen/generation.py, generate_like.py, ../noise_schedule.csv, test_sizes_large.csv, ../training/denoiser.pth
+transfer_input_files = ../../src, generate_like.py, ../../config, test_sizes_large.csv, ../training/denoiser_v9.pth
 
 # REPLACE with output files
 transfer_output_files = like.hdf5

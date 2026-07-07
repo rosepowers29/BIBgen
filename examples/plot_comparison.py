@@ -53,7 +53,7 @@ def main(args):
     return 0
 
 if __name__ == "__main__":
-    # uv run plot_comparison.py ../data/raw_cyl_phipi4_large.hdf5 generation/like_v7.hdf5
+    # uv run plot_comparison.py ../data/raw_cyl_phipi4_large.hdf5 generation/like_v8.hdf5
     parser = argparse.ArgumentParser()
     parser.add_argument("mc_file")
     parser.add_argument("gen_file")
