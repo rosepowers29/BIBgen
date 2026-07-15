@@ -8,6 +8,6 @@ pip install h5py
 
 ls
 export PYTHONPATH=$PWD/src:$PYTHONPATH
-python train.py diffused_cyl_phipi4_large.hdf5 config/noise_schedule.csv config/equivariant_denoiser.json -e 151 -b 5
+python train.py diffused_cyl_phipi4_large.hdf5 config/noise_schedule.csv config/mlp_denoiser.json -e 151 -b 5
 
 # END

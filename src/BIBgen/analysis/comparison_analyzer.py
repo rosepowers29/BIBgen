@@ -10,8 +10,9 @@ import matplotlib.pyplot as plt
 from typing import Dict, List, Tuple, Optional
 from pathlib import Path
 
+from BIBgen.analysis import plotting
 
-class BIBgenHistogramAnalyzer:
+class ComparisonAnalyzer:
     """Histogram analyzer for BIB detector hits in cylindrical coordinates."""
     
     def __init__(self,
@@ -28,8 +29,16 @@ class BIBgenHistogramAnalyzer:
         self.s_range = s_range
         self.z_range = z_range
 
+        self.data = {}
+        self.aggr_data = {}
+
         self.output_dir = Path(output_dir)
         self.output_dir.mkdir(parents=True, exist_ok=True)
+
+    def aggregated_data(self, keys=None):
+        if keys is None:
+            keys = set(self.data.keys())
+        return {name : np.concatenate(self.data[name], axis=0) for name in self.data if name in keys}
     
     def compute_eta_from_cylindrical(self, s: np.ndarray, z: np.ndarray) -> np.ndarray:
         """
@@ -154,7 +163,7 @@ class BIBgenHistogramAnalyzer:
         
         return {'energy': energy, 'phi': phi, 's': s, 'z': z, 'eta': eta}
     
-    def load_from_model_output(self, model_output: np.ndarray, 
+    def load_from_dict(self, name : str, events : dict, 
                                is_sphered: bool = True,
                                sphering = None) -> Dict[str, np.ndarray]:
         """
@@ -168,22 +177,30 @@ class BIBgenHistogramAnalyzer:
         Returns:
             Dictionary with arrays: energy, phi, s, z, eta
         """
-        if is_sphered:
-            if sphering is None:
-                raise ValueError("Sphering object required for normalized data")
-            data = sphering.untransform(model_output)
-        else:
-            data = model_output
-        
-        energy = data[:, 0]
-        phi = data[:, 1]
-        s = data[:, 2]
-        z = data[:, 3]
-        eta = self.compute_eta_from_cylindrical(s, z)
-        
-        return {'energy': energy, 'phi': phi, 's': s, 'z': z, 'eta': eta}
+        events_processed = {}
+        aggr_processed = {'energy': [], 'phi': [], 's': [], 'z': [], 'eta': []}
+        for event_id in events:
+            if is_sphered:
+                if sphering is None:
+                    raise ValueError("Sphering object required for normalized data")
+                data = sphering.untransform(events[event_id])
+            else:
+                data = events[event_id]
+            
+            energy = data[:, 0]
+            phi = data[:, 1]
+            s = data[:, 2]
+            z = data[:, 3]
+            eta = self.compute_eta_from_cylindrical(s, z)
+
+            events_processed[event_id] = {'energy': energy, 'phi': phi, 's': s, 'z': z, 'eta': eta}
+            for var in events_processed[event_id]:
+                aggr_processed[var].append(events_processed[event_id][var])
+            
+        self.data[name] = events_processed
+        self.aggr_data[name] = {var : np.concatenate(aggr_processed[var], axis=0)for var in aggr_processed}
     
-    def compute_delta_r(self, eta1: np.ndarray, phi1: np.ndarray,
+    def delta_r(self, eta1: np.ndarray, phi1: np.ndarray,
                        eta2: np.ndarray, phi2: np.ndarray) -> np.ndarray:
         """Compute Delta R metric between coordinate pairs."""
         delta_eta = eta1 - eta2
@@ -218,7 +235,7 @@ class BIBgenHistogramAnalyzer:
         hits_in_cone = np.zeros(n_hits, dtype=int)
         
         for i in range(n_hits):
-            delta_r = self.compute_delta_r(eta[i], phi[i], eta, phi)
+            delta_r = self.delta_r(eta[i], phi[i], eta, phi)
             hits_in_cone[i] = np.sum((delta_r < delta_r_threshold) & (delta_r > 0))
         
         return hits_in_cone
@@ -294,42 +311,51 @@ class BIBgenHistogramAnalyzer:
         plt.tight_layout()
         plt.savefig(self.output_dir / f"{prefix}_basic_observables.png", dpi=300, bbox_inches='tight')
         plt.close()
-
-    def _plot_2d(self, var1, var2, range1, range2, label1, label2, title, bins, outfile):
-        fig, ax = plt.subplots(figsize=(10, 8))
-
-        h = ax.hist2d(var1, var2, bins=bins, cmap='viridis', cmin=1, range=(range1, range2))
-        plt.colorbar(h[3], ax=ax, label='Hits')
-        
-        ax.set_xlabel(label1, fontsize=12)
-        ax.set_ylabel(label2, fontsize=12)
-        ax.set_title(title, fontsize=14, fontweight='bold')
-        ax.set_ylim(*range2)
-        ax.set_xlim(*range1)
-        ax.grid(True, alpha=0.3)
-        
-        plt.tight_layout()
-        plt.savefig(self.output_dir / outfile, dpi=300, bbox_inches='tight')
-        plt.close()
     
-    def plot_eta_phi_2d(self, hits: Dict[str, np.ndarray],
-                        prefix: str = "bib",
-                        bins: int = 100):
-        """Generate 2D histogram of eta vs phi."""
-        self._plot_2d(hits['eta'], hits['phi'], self.eta_range, self.phi_range, 'η', 'φ [rad]', 'Hit Distribution in η-φ Space', bins, f"{prefix}_eta_phi_2d.png")
-
-    def plot_s_eta_2d(self, hits: Dict[str, np.ndarray],
-                        prefix: str = "bib",
-                        bins: int = 100):
-        self._plot_2d(hits['s'], hits['eta'], self.s_range, self.eta_range, 's [mm]', 'η', 'Hit Distribution in s-η Space', bins, f"{prefix}_s_eta_2d.png")
-    
-    def plot_clustering_comparison(self
-        mc_hits: Dict[str, np.ndarray],
-        gen_hits: Dict[str, np.ndarray],
-        prefix : str = "bib",
-        max_hits_sample: int = 10000,
-        bins : int = 50
+    def plot_eta_phi_2d(self,
+        name : str,
+        prefix : str = "",
+        bins: int | tuple = 50
     ):
+        """Generate 2D histogram of eta vs phi."""
+        outname = prefix + "_eta_phi_2d.png" if prefix != "" else "eta_phi_2d.png"
+        outpath = self.output_dir / outname
+        plotting.maia_hist2d(
+            np.histogram2d(
+                self.aggr_data[name]["eta"],
+                self.aggr_data[name]["phi"],
+                bins=bins,
+                range=(self.eta_range, self.phi_range)
+            ),
+            outpath,
+            r"$\eta$",
+            r"$\phipwa$",
+            self.eta_range,
+            self.phi_range,
+            mask_zero=True
+        )
+
+    def plot_s_eta_2d(self,
+        name : str,
+        prefix : str = "",
+        bins: int | tuple = 50
+    ):
+        outname = prefix + "_s_eta_2d.png" if prefix != "" else "s_eta_2d.png"
+        outpath = self.output_dir / outname
+        plotting.maia_hist2d(
+            np.histogram2d(
+                self.aggr_data[name]["s"],
+                self.aggr_data[name]["eta"],
+                bins=bins,
+                range=(self.s_range, self.eta_range)
+            ),
+            outpath,
+            "s [mm]",
+            r"$\eta$",
+            self.s_range,
+            self.eta_range,
+            mask_zero=True
+        )
         
 
     def plot_delta_r_clustering(self, hits: Dict[str, np.ndarray],
@@ -378,13 +404,16 @@ class BIBgenHistogramAnalyzer:
         self.plot_eta_phi_2d(hits, prefix)
         self.plot_delta_r_clustering(hits, prefix, max_hits_sample=max_hits_for_clustering)
     
-    def plot_overlay_comparison(self, mc_hits: Dict[str, np.ndarray],
-                                gen_hits: Dict[str, np.ndarray],
+    def plot_kinematics_1d(self,
+        name1 : str,
+        name2 : str,
                                 prefix: str = "comparison",
                                 bins: int = 100,
                                 normalized : bool = True,
                                 log_scale : bool = True):
         """Plot MC and generated data overlayed on same axes."""
+        mc_hits = self.aggr_data[name1]
+        gen_hits = self.aggr_data[name2]
         
         fig, axes = plt.subplots(2, 3, figsize=(18, 12))
         fig.suptitle('MC vs Generated', fontsize=16, fontweight='bold')
@@ -483,6 +512,39 @@ class BIBgenHistogramAnalyzer:
         plt.savefig(self.output_dir / f"{prefix}_overlay.png", dpi=300, bbox_inches='tight')
         plt.close()
 
+    def plot_clustering(self,
+        event_id : str,
+        data_keys : set = None,
+        reference_key : str = None,
+        prefix : str = "",
+        bins : int = 50,
+        dR_range = (0.001, 0.2)
+    ):
+        if data_keys is None:
+            data_keys = set(self.data.keys())
+
+        histograms = {}
+        for name in data_keys:
+            etas = self.data[name][event_id]["eta"]
+            phis = self.data[name][event_id]["phi"]
+            nhits = len(etas)
+            event_hist = np.empty((nhits, bins))
+
+            for ihit in range(nhits):
+                dRs = self.delta_r(etas[ihit], phis[ihit], etas, phis)
+                event_hist[ihit], bin_edges = np.histogram(dRs, bins=bins, range=dR_range)
+
+            histograms[name] = (np.mean(event_hist, axis=0), bin_edges)
+
+        outname = prefix + "_clustering.png" if prefix != "" else "clustering.png"
+        outpath = self.output_dir / outname
+        plotting.maia_hist1d(histograms, outpath, r"$\Delta R$", "Average # of hits")
+
+        if reference_key is not None:
+            ratio_histograms = {name : (histograms[name][0] / histograms[reference_key][0], histograms[name][1]) for name in histograms if name != reference_key}
+            outname = prefix + "_clustering_ratio.png" if prefix != "" else "clustering_ratio.png"
+            outpath = self.output_dir / outname
+            plotting.maia_hist1d(ratio_histograms, outpath, r"$\Delta R$", "Average # of hits / Average # of hits (MC)", ybounds=(0.8, 1.2))
 
 def compare_mc_vs_generated(mc_hits: Dict[str, np.ndarray],
                            gen_hits: Dict[str, np.ndarray],
