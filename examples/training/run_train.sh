@@ -6,7 +6,8 @@ export PYTHONPATH=$PYTHONPATH:/opt/conda/lib/python3.10/site-packages
 # install a user installation instance of h5py since it does not come with the container
 pip install h5py
 
-# REPLACE with your executable
-python train.py diffused_cyl_phipi4_large.hdf5 noise_schedule.csv -c -e 151 -b 5
+ls
+export PYTHONPATH=$PWD/src:$PYTHONPATH
+python train.py diffused_cyl_phipi4_large.hdf5 config/noise_schedule.csv config/mlp_denoiser.json -e 151 -b 5
 
 # END

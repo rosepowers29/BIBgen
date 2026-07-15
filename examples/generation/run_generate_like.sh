@@ -7,6 +7,7 @@ export PYTHONPATH=$PYTHONPATH:/opt/conda/lib/python3.10/site-packages
 pip install h5py
 
 # REPLACE with your executable
-python generate_like.py denoiser.pth noise_schedule.csv test_sizes_large.csv -c
+export PYTHONPATH=$PWD/src:$PYTHONPATH
+python generate_like.py denoiser_v10.pth config/mlp_denoiser.json config/noise_schedule.csv test_sizes_large.csv 
 
 # END

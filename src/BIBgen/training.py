@@ -1,8 +1,11 @@
 from typing import Callable
+import json
 
 import h5py
 import torch
 import numpy as np
+
+from BIBgen import models as model_classes
 
 class BaseDataLoader:
     def __init__(self, infile : h5py.File, key : str, shuffle : bool = True):
@@ -136,13 +139,19 @@ class BatchedDataLoader(BaseDataLoader):
         return torch.from_numpy(event[batch_taus + 1]).to(dtype=torch.float32), torch.from_numpy(event[batch_taus]).to(dtype=torch.float32), batch_taus
         # return event[batch_taus + 1].to(dtype=torch.float32), event[batch_taus].to(dtype=torch.float32), batch_taus
 
+def log_per_layer_grads(model):
+    for name, p in model.named_parameters():
+        if p.grad is not None:
+            print(f"  {name:45s} grad={p.grad.norm().item():.3e}  param={p.norm().item():.3e}")
+
 def train(
     dataloader : BaseDataLoader,
     model : torch.nn.Module,
     loss_fn : Callable,
     optimizer : torch.optim.Optimizer,
     device : torch.device,
-    scaler : torch.amp.GradScaler | None = None
+    scaler : torch.amp.GradScaler | None = None,
+    max_steps_diagnostics : int = 0
 ):
     """
     Trains the model for one epoch.
@@ -159,6 +168,8 @@ def train(
         Optimizer for gradient descent
     device : torch.device
         device on which to perform, usually torch.device("cuda") or torch.device("cpu")
+    max_steps_diagnostics : int
+        Maximum number of steps to print diagnostics
 
     Returns
     -------
@@ -167,6 +178,7 @@ def train(
     """
     # assert scaler is not None or device.type != "cuda"
     model.train()
+    grad_norm = None
     for istep in range(dataloader.nsteps):
         X, y, tau = next(dataloader)
         X, y, tau = X.to(device), y.to(device), tau.to(device)
@@ -188,6 +200,9 @@ def train(
                 scaler.update()
             else:
                 loss.backward()
+                if istep < max_steps_diagnostics:
+                    log_per_layer_grads(model)
+                torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
                 optimizer.step()
         except torch.cuda.OutOfMemoryError:
             print("Failed step {}, cuda out of memory".format(istep))
@@ -234,3 +249,10 @@ def evaluate(dataloader : BaseDataLoader, model : torch.nn.Module, loss_fn : Cal
                 raise RuntimeError("Nonfinite test loss")
 
     return test_loss / dataloader.nsteps
+
+def load_empty_model(model_config_path : str, n_timesteps : int):
+    assert model_config_path.endswith(".json")
+    with open(model_config_path, "r") as fin:
+        model_config = json.load(fin)
+    model = getattr(model_classes, model_config["name"])(n_timesteps=n_timesteps, **model_config["hyperparameters"])
+    return model

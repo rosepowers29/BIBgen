@@ -1,0 +1,10 @@
+{
+  "name" : "EquivariantDenoiser",
+  "hyperparameters" : {
+    "tau_encoding_dimension" : 32,
+    "position_encoding_dimension" : 64,
+    "hidden_layer_size" : 256,
+    "n_hidden_layers" : 4,
+    "disable_interactions" : true
+  }
+}
