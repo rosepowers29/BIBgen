@@ -45,7 +45,7 @@ uv run diffuse.py ../data/raw_cyl_phipi4_large.hdf5 noise_schedule.csv -o ../dat
 
 Run the training, which will produce a file `denoiser.pth` with trained model weights. Note that the noise schedule must be provided since these are a proxy for predicted variances. The script will automatically use a cuda device if one is detected.
 ```bash
-uv run training/train.py ../data/diffused_cyl_phipi4_large.hdf5 noise_schedule.csv -e 151 -b 5
+uv run training/train.py ../data/diffused_cyl_phipi4_large.hdf5 noise_schedule.csv ../config/mlp_denoiser.json -e 151 -b 5
 ```
 
 Condor scripts to submit the above script on OSPool is provided.
@@ -62,7 +62,7 @@ uv run generation/write_test_sizes.py ../data/raw_cyl_phipi4_large.hdf5 -o gener
 
 Generate a new dataset with the trained model. The model is completely agnostic to event size, so we purposely generate events of the same sizes as the test. This produces a file `like.hdf`
 ```bash
-uv run generation/generate_like.py denoiser.pth noise_schedule.csv test_sizes_large.csv
+uv run generation/generate_like.py denoiser.pth ../config/mlp_denoiser.json noise_schedule.csv test_sizes_large.csv
 ```
 
 The above script can be submitted to OSPool.
