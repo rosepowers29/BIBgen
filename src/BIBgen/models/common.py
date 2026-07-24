@@ -4,7 +4,12 @@ import torch
 from torch import nn
 
 class FourierEncoding(nn.Module):
-    def __init__(self, dimension : int, initial_frequencies : torch.Tensor | None = None, learned : bool = True):
+        def __init__(self,
+        dimension : int,
+        initial_frequencies : torch.Tensor | None = None,
+        learned : bool = True,
+        log_frequency : bool = False,
+        ):
         """
         Initializer for learned Fourier encoding module.
         Stores a vector of learnable frequencies,
@@ -45,28 +50,17 @@ class FourierEncoding(nn.Module):
 
         if initial_frequencies is None:
             initial_frequencies = torch.arange(1, half_dimension+1, dtype=torch.float32)
-        initial_frequencies = initial_frequencies.unsqueeze(0) # (1, dimension / 2)
+        initial_frequencies = initial_frequencies.unsqueeze(0)
 
-        self.frequency_table = nn.Parameter(data=initial_frequencies)
+        self.log_frequency = log_frequency
+        if self.log_frequency:
+            self.frequency_table = nn.Parameter(data=torch.log(initial_frequencies))
+        else:
+            self.frequency_table = nn.Parameter(data=initial_frequencies)
 
     def forward(self, x : torch.Tensor) -> torch.Tensor:
-        """
-        Forward pass of fourier encoding. Input `x` is multiplied by every frequency,
-        which then both `sin` and `cos` are taken of to add to the encoding vector.
-        Note that this module should be called directly with __call__ when incorporated in neural networks.
-
-        Parameters
-        ----------
-        x : torch.Tensor
-            Tensor of scalar inputs to be encoded in fourier vector representation,
-            with dimension `(n_batch, n_members)` or `(n_members,)`
-
-        Returns
-        -------
-        x_fourier : torch.Tensor
-            Tensor of fourier vector representation with dimension `(n_batch, n_members, dimension)` or `(n_members, dimension)`
-        """
-        thetas = x.unsqueeze(-1) @ self.frequency_table
+        frequencies = torch.exp(self.frequency_table) if self.log_frequency else self.frequency_table
+        thetas = x.unsqueeze(-1) @ frequencies
         sin_elems = torch.sin(thetas)
         cos_elems = torch.cos(thetas)
         return torch.cat((sin_elems, cos_elems), dim=-1)
