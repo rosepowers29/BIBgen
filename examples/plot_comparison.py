@@ -8,6 +8,32 @@ import numpy as np
 from BIBgen.preprocessing import Sphering
 from BIBgen.analysis import BIBgenHistogramAnalyzer
 
+from scipy.stats import wasserstein_distance
+import csv
+
+def write_wasserstein_distances(mc_vars, gen_vars, outdir, tag):
+    """
+    Writes per-variable Wasserstein (earth-mover's) distance between the MC
+    and generated distributions to <outdir>/wasserstein_distances.csv.
+    Tag is included as a column so per-run CSVs can be concatenated later
+    for a cross-experiment comparison.
+    """
+    variables = ("energy", "phi", "eta", "s", "z")
+    distances = {k: wasserstein_distance(mc_vars[k], gen_vars[k]) for k in variables}
+
+    csv_path = os.path.join(outdir, "wasserstein_distances.csv")
+    with open(csv_path, "w", newline="") as f:
+        writer = csv.writer(f)
+        writer.writerow(["tag", "variable", "wasserstein_distance"])
+        for k, v in distances.items():
+            writer.writerow([tag, k, v])
+
+    print(f"Wasserstein distances written to {csv_path}:")
+    for k, v in distances.items():
+        print(f"  {k}: {v:.6g}")
+
+    return distances
+
 def infer_tag(genpath):
     stem = os.path.splitext(os.path.basename(genpath))[0]
     return re.sub(r"_like$", "", stem)
@@ -55,6 +81,9 @@ def main(args):
 
     analyzer.plot_overlay_comparison(mc_vars, gen_vars, prefix="aggr_log", normalized=False)
     analyzer.plot_overlay_comparison(mc_vars, gen_vars, prefix="aggr", normalized=False, log_scale=False)
+    
+    write_wasserstein_distances(mc_vars, gen_vars, outpath, tag)
+
     analyzer.plot_eta_phi_2d(mc_vars, prefix="mc", bins=50)
     analyzer.plot_eta_phi_2d(gen_vars, prefix="gen", bins=50)
     analyzer.plot_s_eta_2d(mc_vars, prefix="mc", bins=50)

@@ -67,3 +67,31 @@ python plot_comparison.py [mc_file] [gen_file]
 Output directory defaults to ``plots/<tag>``, inferred from the generated file's name. Whether
 the energy feature needs exponentiating back from ``ln(E)`` is auto-detected from the MC file;
 override with ``-l {auto,yes,no}`` if needed.
+
+## Ablation Analysis
+
+Once you've run `plot_comparison.py` for each config/energy-parameterization variant (producing
+a `wasserstein_distances.csv` per tag under `plots/<tag>/`), run:
+
+```bash
+python analyze_ablation.py --plots-dir plots --history-dir training/history -o plots/analysis
+```
+
+This reads every `wasserstein_distances.csv` found under `--plots-dir` (tag comes from the file's
+own `tag` column — no hardcoded list to maintain) and every `history_<tag>.csv` found under
+`--history-dir`, then writes four comparison plots to `-o`:
+
+- ``wasserstein_by_variable.png`` — one bar chart per physical variable (energy, φ, η, s, z),
+  comparing all configs
+- ``wasserstein_grouped.png`` — all variables and configs together, log-scale
+- ``pareto_aggregate_vs_valloss.png`` — normalized aggregate Wasserstein score vs. best validation
+  loss. **Faceted by energy parameterization (raw-E vs. log-E) when both are present** — validation
+  loss is not comparable across the two, since ``ln(E)`` and ``E`` correspond to different
+  likelihood functions (a Jacobian term separates them). Wasserstein distance itself doesn't have
+  this problem, since it's always computed on the untransformed physical variable.
+- ``pareto_pairwise_all_combos.png`` — pairwise Pareto fronts across all five variables; dominance
+  here is unaffected by axis scale, so no normalization is needed for this plot specifically (unlike
+  the aggregate score above, which does normalize before summing).
+
+Use ``--tag-order`` to fix the tag ordering/subset shown (comma-separated); otherwise tags are
+auto-sorted from whatever's present in the data.
