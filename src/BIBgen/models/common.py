@@ -4,7 +4,7 @@ import torch
 from torch import nn
 
 class FourierEncoding(nn.Module):
-        def __init__(self,
+    def __init__(self,
         dimension : int,
         initial_frequencies : torch.Tensor | None = None,
         learned : bool = True,

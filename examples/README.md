@@ -61,6 +61,14 @@ Model architecture is specified via a JSON config, e.g. ``config/equivariant_den
 ``use_position_encoding`` defaults to ``false`` — hit coordinates (φ, s, z) are fed to the model
 directly rather than through an additional learned Fourier encoding.
 
+``predict_variances`` defaults to ``false``. When ``true``, the model predicts its own per-hit,
+per-feature variance alongside the mean, turning the loss into a genuine Gaussian NLL rather than
+a ``β_τ``-weighted MSE (the fixed noise-schedule value is used as the variance when this is
+``false``). See ``config/equivariant_denoiser_learned_variance.json`` for an example. ``train.py``
+and ``generate_like.py`` handle the wiring automatically based on ``model.predict_variances`` — no
+other CLI arguments change; ``noise_schedule`` is still required by both scripts since it also
+fixes ``n_timesteps``.
+
 ## Training
 
 ```bash

@@ -39,7 +39,8 @@ class GaussianNLLLoss(nn.Module):
         
         # (actual - mu)^2 / variance
         squared_error = (actual - mu) ** 2
-        variance = variance.unsqueeze(-1).unsqueeze(-1).expand(*variance.shape, *squared_error.shape[-2:])
+        if variance.shape != squared_error.shape:
+            variance = variance.unsqueeze(-1).unsqueeze(-1).expand(*variance.shape, *squared_error.shape[-2:])
         normalized_error = (squared_error / variance)
         
         # log(variance)

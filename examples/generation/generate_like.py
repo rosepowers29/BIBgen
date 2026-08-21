@@ -33,11 +33,13 @@ def main(args):
     model = load_empty_model(model_config_path, len(schedule)).to(device)
     model.load_state_dict(torch.load(model_path, weights_only=True))
 
+    gen_schedule = None if model.predict_variances else schedule
+
     print(f"Writing generated events to {outpath}")
 
     with h5py.File(outpath, "w") as fout:
         for event_id, nhits in zip(test_event_ids, sizes):
-            sphered = generate_sphered(model, nhits, device, schedule=schedule, demo=False).cpu()
+            sphered = generate_sphered(model, nhits, device, schedule=gen_schedule, demo=False).cpu()
             fout.create_dataset(event_id, data=sphered)
             print("Wrote {} of shape {} to {}".format(event_id, sphered.size(), outpath))
 

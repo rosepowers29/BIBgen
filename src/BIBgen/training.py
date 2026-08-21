@@ -207,7 +207,10 @@ def train(
         except torch.cuda.OutOfMemoryError:
             print("Failed step {}, cuda out of memory".format(istep))
             print("X.size() : {}, y.size() : {}".format(X.size(), y.size()))
-            print("pred.size() : {}".format(pred.size()))
+            if isinstance(pred, tuple):
+                print("pred[0].size() (mu) : {}, pred[1].size() (var) : {}".format(pred[0].size(), pred[1].size()))
+            else:
+                print("pred.size() : {}".format(pred.size()))
             raise RuntimeError("Intentional exit")
 
     optimizer.zero_grad()

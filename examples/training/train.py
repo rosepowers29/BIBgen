@@ -34,7 +34,10 @@ def main(args):
     model = load_empty_model(model_config_path, len(schedule)).to(device)
 
     gaussian_nll = GaussianNLLLoss()
-    loss_fn = lambda pred, y, tau: gaussian_nll(pred, schedule[tau], y)
+    if model.predict_variances:
+        loss_fn = lambda pred, y, tau: gaussian_nll(pred[0], pred[1], y)
+    else:
+        loss_fn = lambda pred, y, tau: gaussian_nll(pred, schedule[tau], y)
 
     optimizer = torch.optim.AdamW(model.parameters(), lr=1e-4, weight_decay=1e-2)
 
