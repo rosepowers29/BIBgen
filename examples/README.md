@@ -16,6 +16,31 @@ to store raw ``E`` instead. The chosen setting is stamped into the output file
 ## Make Diffused Data
 Run ``diffuse.py [raw_data] [noise_schedule] -o [outfile]``.
 
+## Noise Schedule
+
+``noise_schedule.csv`` files are generated with ``make_noise_schedule.py``:
+
+```bash
+python make_noise_schedule.py quadratic [out.csv] -T [n_timesteps] --scale [scale]
+python make_noise_schedule.py cosine [out.csv] -T [n_timesteps] --target-alpha-bar-t [alpha_bar_T]
+```
+
+``quadratic`` reproduces the original ``beta(tau) = scale * tau^2`` schedule (defaults match
+``config/noise_schedule.csv`` exactly). ``cosine`` follows Nichol & Dhariwal's "Improved DDPM"
+schedule, solved so that the cumulative ``alpha_bar`` at the final timestep matches
+``--target-alpha-bar-t`` exactly. Compared to the quadratic schedule, cosine spreads noise more
+evenly through the middle of the chain, but concentrates a sharp jump in the final step or two;
+raise ``--target-alpha-bar-t`` to soften that jump (``--s`` has little effect on it).
+
+Compare schedules before committing to a full diffuse+train run with:
+
+```bash
+python plot_noise_schedule.py [schedule1.csv] [schedule2.csv] ... --labels [name1] [name2] ... -o [comparison.png]
+```
+
+This prints ``beta_min``/``beta_max``/``alpha_bar_T`` for each schedule and, if ``-o`` is given,
+saves a plot of ``beta(tau)`` and ``alpha_bar(tau)``.
+
 ## Model Configuration
 
 Model architecture is specified via a JSON config, e.g. ``config/equivariant_denoiser.json``:
@@ -45,9 +70,12 @@ python train.py [diffused_data] [noise_schedule] [model_config] -e [epochs] -b [
 ``-t/--tag`` names the output files for this run (``denoiser_<tag>.pth``, ``history_<tag>.csv``);
 defaults to the config filename stem if omitted. ``-o/--out`` overrides the output path directly.
 
-``submit_train.sub`` reads ``(data, config, tag)`` rows from ``experiments.txt`` and queues one
-condor job per row, so multiple runs can be submitted at once without output files clobbering
-each other.
+``submit_train.sub`` reads ``(data, config, tag, schedule)`` rows from ``experiments.txt`` and
+queues one condor job per row, so multiple runs (including runs against different noise
+schedules) can be submitted at once without output files clobbering each other. ``schedule`` is
+a filename within ``config/`` (e.g. ``noise_schedule.csv`` or ``noise_schedule_cosine.csv``) —
+the whole ``config/`` directory is already transferred to the job, so no other change is needed
+to use a new schedule.
 
 ## Generation
 
@@ -56,7 +84,9 @@ python generate_like.py [model.pth] [model_config] [noise_schedule] [size_file] 
 ```
 
 Produces ``<tag>_like.hdf5``. Use the same ``-t`` you trained with. ``submit_generate_like.sub``
-fans this out the same way, reading ``(config, tag)`` pairs from ``generate_experiments.txt``.
+fans this out the same way, reading ``(config, tag, schedule)`` rows from
+``generate_experiments.txt``. ``schedule`` must be the same one the model with that ``tag`` was
+trained with.
 
 ## Analysis
 

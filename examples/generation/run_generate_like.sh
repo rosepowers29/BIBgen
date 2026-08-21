@@ -8,5 +8,5 @@ pip install h5py
 
 # REPLACE with your executable
 export PYTHONPATH=$PWD/src:$PYTHONPATH
-python generate_like.py $1 $2 config/noise_schedule.csv test_sizes_large.csv -t $3
+python generate_like.py $1 $2 config/$4 test_sizes_large.csv -t $3
 # END
