@@ -21,4 +21,4 @@ transfer_input_files = train.py, ../../src, ../../config, osdf:///ospool/uc-shar
 transfer_output_files = denoiser_$(tag).pth, history_$(tag).csv
 should_transfer_files = YES
 
-queue data,config,tag,schedule from experiments.txt
+queue data,config,tag,schedule from experiments_sched.txt
