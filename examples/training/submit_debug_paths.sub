@@ -7,7 +7,7 @@ output = debug_paths_$(Cluster)_$(Process).out
 
 executable = debug_paths.sh
 
-+JobDurationCategory = "Short"
++JobDurationCategory = "Medium"
 
 request_cpus = 1
 request_memory = 512MB
