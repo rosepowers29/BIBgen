@@ -41,29 +41,29 @@ class FourierEncoding(nn.Module):
             If `dimension` is not even.
             If `len(initial_frequencies)` is not half of `dimension`.
         """
-            super().__init__()
-            if not learned:
-                raise NotImplementedError("Unlearned encoding not supported.")
-            if dimension % 2 != 0:
-                raise ValueError("dimension must be even")
-            half_dimension = dimension // 2
+        super().__init__()
+        if not learned:
+            raise NotImplementedError("Unlearned encoding not supported.")
+        if dimension % 2 != 0:
+            raise ValueError("dimension must be even")
+        half_dimension = dimension // 2
 
-            if initial_frequencies is None:
-                initial_frequencies = torch.arange(1, half_dimension+1, dtype=torch.float32)
-            initial_frequencies = initial_frequencies.unsqueeze(0)
+        if initial_frequencies is None:
+            initial_frequencies = torch.arange(1, half_dimension+1, dtype=torch.float32)
+        initial_frequencies = initial_frequencies.unsqueeze(0)
 
-            self.log_frequency = log_frequency
-            if self.log_frequency:
-                self.frequency_table = nn.Parameter(data=torch.log(initial_frequencies))
-            else:
-                self.frequency_table = nn.Parameter(data=initial_frequencies)
+        self.log_frequency = log_frequency
+        if self.log_frequency:
+            self.frequency_table = nn.Parameter(data=torch.log(initial_frequencies))
+        else:
+            self.frequency_table = nn.Parameter(data=initial_frequencies)
 
-        def forward(self, x : torch.Tensor) -> torch.Tensor:
-            frequencies = torch.exp(self.frequency_table) if self.log_frequency else self.frequency_table
-            thetas = x.unsqueeze(-1) @ frequencies
-            sin_elems = torch.sin(thetas)
-            cos_elems = torch.cos(thetas)
-            return torch.cat((sin_elems, cos_elems), dim=-1)
+    def forward(self, x : torch.Tensor) -> torch.Tensor:
+        frequencies = torch.exp(self.frequency_table) if self.log_frequency else self.frequency_table
+        thetas = x.unsqueeze(-1) @ frequencies
+        sin_elems = torch.sin(thetas)
+        cos_elems = torch.cos(thetas)
+        return torch.cat((sin_elems, cos_elems), dim=-1)
 
 class VarianceTower(nn.Module):
     SP_BETA = 1.0
