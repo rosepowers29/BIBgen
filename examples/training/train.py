@@ -53,13 +53,13 @@ def main(args):
             val_loss = evaluate(validation_loader, model, loss_fn, device)
             print("Epoch {}: Validation loss: {}".format(epoch, val_loss))
             history.append((epoch, val_loss))
+            np.savetxt(history_path, np.array(history), delimiter=",", header="epoch,val_loss", comments="")
 
             if val_loss < best_val_loss:
                 best_val_loss = val_loss
                 torch.save(model.state_dict(), out_path)
                 print("Saving epoch {} to {}".format(epoch, out_path))
 
-    np.savetxt(history_path, np.array(history), delimiter=",", header="epoch,val_loss", comments="")
     infile.close()
     return 0
 
