@@ -73,6 +73,11 @@ def energy_param_of(tag):
     return "unknown"
 
 
+def variance_mode_of(tag):
+    """predict_variances=True runs are conventionally tagged with a '_predvar' token."""
+    return "learned_var" if re.search(r"(?:^|_)predvar(?:$|_)", tag) else "fixed_var"
+
+
 def resolve_tags(available, requested):
     if requested is None:
         return sorted(available, key=default_tag_sort_key)
@@ -180,21 +185,42 @@ def main(args):
         norm = (pivot - pivot.min()) / (pivot.max() - pivot.min())
         agg_score = norm.sum(axis=1)
 
-        groups = {t: energy_param_of(t) for t in tags}
-        param_values = set(groups.values())
+        energy_groups = {t: energy_param_of(t) for t in tags}
+        variance_groups = {t: variance_mode_of(t) for t in tags}
 
-        if len(param_values) > 1 and "unknown" not in param_values:
-            fig, axes = plt.subplots(1, len(param_values), figsize=(7 * len(param_values), 6))
+        # Only facet on energy parameterization if every tag is unambiguously marked --
+        # mixing "unknown" with a known value would silently lump possibly-incomparable
+        # tags together. Variance mode has no such "unknown" case: every tag is either
+        # marked '_predvar' or defaults to fixed-variance, so it's always safe to facet on.
+        energy_varies = len(set(energy_groups.values())) > 1 and "unknown" not in energy_groups.values()
+        variance_varies = len(set(variance_groups.values())) > 1
+
+        def regime_of(t):
+            parts = []
+            if energy_varies:
+                parts.append(energy_groups[t])
+            if variance_varies:
+                parts.append(variance_groups[t])
+            return tuple(parts)
+
+        groups = {t: regime_of(t) for t in tags}
+        regime_values = sorted(set(groups.values()))
+        incomparable_axes = (["energy parameterization"] if energy_varies else []) + \
+                             (["variance mode"] if variance_varies else [])
+
+        if regime_values and regime_values != [()]:
+            fig, axes = plt.subplots(1, len(regime_values), figsize=(7 * len(regime_values), 6))
             axes = np.atleast_1d(axes)
-            for ax, param in zip(axes, sorted(param_values)):
-                sub_tags = [t for t in tags if groups[t] == param and t in best_loss.index]
+            for ax, regime in zip(axes, regime_values):
+                sub_tags = [t for t in tags if groups[t] == regime and t in best_loss.index]
                 if not sub_tags:
                     ax.axis("off")
                     continue
                 plot_front(ax, agg_score[sub_tags], best_loss[sub_tags], sub_tags, colors,
                            "Aggregate Wasserstein Score (normalized sum)", "Best Validation Loss")
                 label_points(ax, agg_score, best_loss, sub_tags)
-                ax.set_title(f"{param} runs only\n(val loss not comparable across energy parameterizations)")
+                ax.set_title("{} runs only\n(val loss not comparable across {})".format(
+                    " / ".join(regime), " or ".join(incomparable_axes)))
             fig.suptitle("Pareto Front: Distribution Fidelity vs Training Performance", fontsize=13)
         else:
             valid_tags = [t for t in tags if t in best_loss.index]
