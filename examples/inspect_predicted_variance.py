@@ -17,6 +17,8 @@ import csv
 
 import numpy as np
 import torch
+import matplotlib
+matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 
 from BIBgen.training import load_empty_model
@@ -33,6 +35,7 @@ def main(args):
     assert schedule_path.endswith(".csv")
     assert outpath.endswith(".png")
 
+    torch.set_num_threads(1)  # avoid thread oversubscription on shared/login nodes
     device = torch.device("cpu")
     n_timesteps = len(np.loadtxt(schedule_path))
 
