@@ -69,6 +69,12 @@ and ``generate_like.py`` handle the wiring automatically based on ``model.predic
 other CLI arguments change; ``noise_schedule`` is still required by both scripts since it also
 fixes ``n_timesteps``.
 
+When ``predict_variances`` is ``true``, training automatically uses ``DecoupledGaussianNLLLoss``
+(mean and variance share every hidden layer, only diverging at the final output slice — without
+decoupling, the variance head tends to collapse onto a trivial solution that just reproduces
+``β_τ`` instead of learning anything input-dependent). ``--variance-loss-weight`` (default ``1.0``)
+weights the variance-training term relative to the mean-training term.
+
 ## Training
 
 ```bash
