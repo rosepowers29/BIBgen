@@ -2,11 +2,14 @@
 Inspects a predict_variances=True model's learned variance head as a function of
 diffusion timestep tau, without needing real data or running full generation.
 
-Feeds standard-normal synthetic inputs (matching the true forward-process marginal at
-tau=T by construction, and used here as a fixed, controlled stress input across ALL tau
-so that any tau-dependence observed is attributable to the model's own tau-conditioning,
-not to a confound of also varying input realism) and records the model's predicted
-variance per feature at each tau.
+Feeds synthetic inputs across ALL tau so that any tau-dependence observed is attributable
+to the model's own tau-conditioning, not to a confound of also varying input realism.
+Each of the 4 feature channels is given a DISTINCT scale/offset (FEATURE_SCALES/OFFSETS
+below) rather than i.i.d. standard normal identically across channels -- feeding
+statistically-identical input to every channel gives even a correctly-learning,
+genuinely feature-sensitive variance head no basis to differentiate its output across
+features, so a naive isotropic probe can't distinguish "the variance head collapsed"
+from "it learned something real, but this probe is symmetric across features".
 
 Useful for diagnosing whether a variance blowup/collapse near specific timesteps (e.g.
 tau close to T, where an aggressive schedule like the cosine one has a large single-step
@@ -24,6 +27,10 @@ import matplotlib.pyplot as plt
 from BIBgen.training import load_empty_model
 
 FEATURE_NAMES = ("energy", "phi", "s", "z")
+# Deliberately different per-feature scale/offset -- arbitrary but clearly distinguishable,
+# so a genuinely feature-sensitive model has something to actually respond to.
+FEATURE_SCALES = torch.tensor([1.0, 2.0, 0.5, 3.0])
+FEATURE_OFFSETS = torch.tensor([0.0, 1.0, -1.0, 2.0])
 
 def main(args):
     model_path = args.model_path
@@ -53,7 +60,7 @@ def main(args):
 
     with torch.no_grad():
         for i, tau in enumerate(taus):
-            x = torch.randn(args.n_samples, args.n_hits, 4)
+            x = torch.randn(args.n_samples, args.n_hits, 4) * FEATURE_SCALES + FEATURE_OFFSETS
             tau_batched = torch.full((args.n_samples,), int(tau), dtype=torch.long)
             _, var = model(x, tau_batched)
             var = var.numpy()

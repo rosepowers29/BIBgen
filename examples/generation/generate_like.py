@@ -39,7 +39,7 @@ def main(args):
 
     with h5py.File(outpath, "w") as fout:
         for event_id, nhits in zip(test_event_ids, sizes):
-            sphered = generate_sphered(model, nhits, device, schedule=gen_schedule, demo=False).cpu()
+            sphered = generate_sphered(model, nhits, device, schedule=gen_schedule, demo=False, verbosity=args.verbosity).cpu()
             fout.create_dataset(event_id, data=sphered)
             print("Wrote {} of shape {} to {}".format(event_id, sphered.size(), outpath))
 
@@ -53,4 +53,5 @@ if __name__ == "__main__":
     parser.add_argument("size_file", help="Path to file containing sizes of events to generate")
     parser.add_argument("-o", "--out", default=None, help="Path to output generated events (default: <tag>_like.hdf5)")
     parser.add_argument("-t", "--tag", default=None, help="Experiment tag for naming output (default: model_config filename stem)")
+    parser.add_argument("-v", "--verbosity", type=int, default=0, help="0: silent, 1: print initial white noise, 2: also print per-tau mu/var/x stats (verbose -- one line per tau per event)")
     print("\nFinished with exit code:", main(parser.parse_args()))

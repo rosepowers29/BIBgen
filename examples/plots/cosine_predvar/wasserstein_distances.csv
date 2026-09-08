@@ -1,6 +1,6 @@
 tag,variable,wasserstein_distance
-cosine_predvar,energy,0.00024055892593769212
-cosine_predvar,phi,0.055779411399827436
-cosine_predvar,eta,0.031128844762784304
-cosine_predvar,s,1.7644364556399084
-cosine_predvar,z,66.12735575496698
+cosine_predvar,energy,5.899484100225603e-05
+cosine_predvar,phi,171873.2907948064
+cosine_predvar,eta,0.08413455808142539
+cosine_predvar,s,25584323.24065428
+cosine_predvar,z,615396480.8155555
