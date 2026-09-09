@@ -5,35 +5,30 @@ import mplhep as mh
 
 mh.style.use("ATLAS")
 
-def maia_plot(
-    xlabel : str,
-    ylabel : str,
-    xbounds : tuple | None = None,
-    ybounds : tuple | None = None,
-    log_scale : bool = False,
-):
-    fig, ax = plt.subplots()
+class MaiaAxis:
+    def __init__(self, outpath, **kwargs):
+        fig, ax = plt.subplots()
+        mh.label.exp_text(
+            "Muon Collider", 
+            "Simulation",
+            "Internal",
+            "MAIA Detector Concept",
+            loc=1,
+            fontstyle=("italic", "normal", "normal", "normal"),
+            ax=ax
+        )
 
-    ax.set_xlabel(xlabel)
-    ax.set_ylabel(ylabel)
+        self.fig = fig
+        self.ax = ax
+        self.outpath = outpath
+        self.kwargs = kwargs
 
-    if xbounds is not None:
-        ax.set_xlim(*xbounds)
-    if ybounds is not None:
-        ax.set_ylim(*ybounds)
-    if log_scale:
-        ax.set_yscale("log")
+    def __enter__(self):
+        return self.ax
 
-    mh.label.exp_text(
-        "Muon Collider", 
-        "Simulation",
-        "Internal",
-        "MAIA Detector Concept",
-        loc=1,
-        fontstyle=("italic", "normal", "normal", "normal"),
-        ax=ax
-    )
-    return fig, ax
+    def __exit__(self, type, value, traceback):
+        self.fig.savefig(self.outpath, **self.kwargs)
+        plt.close(self.fig)
 
 def maia_hist1d(
     histograms : dict[str,tuple],
@@ -45,20 +40,30 @@ def maia_hist1d(
     ybounds : tuple | None = None,
     log_scale : bool = False
 ):
-    fig, ax = maia_plot(xlabel, ylabel, xbounds, ybounds, log_scale)
-    for ids, ds in enumerate(histograms):
-        mh.histplot(
-            histograms[ds],
-            histtype="step",
-            ax=ax,
-            label=ds,
-            color="C{}".format(ids),
-            density=density,
-        )
+    if density:
+        ylabel += " Normalized"
 
-    ax.legend()
-    plt.savefig(outpath)
-    plt.close(fig)
+    with MaiaAxis(outpath) as ax:
+        ax.set_xlabel(xlabel)
+        ax.set_ylabel(ylabel)
+        if xbounds is not None:
+            ax.set_xlim(*xbounds)
+        if ybounds is not None:
+            ax.set_ylim(*ybounds)
+        if log_scale:
+            ax.set_yscale("log")
+
+        for ids, ds in enumerate(histograms):
+            mh.histplot(
+                histograms[ds],
+                histtype="step",
+                ax=ax,
+                label=ds,
+                color="C{}".format(ids),
+                density=density,
+            )
+
+        ax.legend()
 
 def maia_hist2d(
     histogram : tuple,
@@ -70,12 +75,9 @@ def maia_hist2d(
     mask_zero : bool = False
 ):
     mask = histogram[0] > 0 if mask_zero else None
-    fig, ax = maia_plot(xlabel, ylabel, xbounds, ybounds)
-    mh.hist2dplot(
-        histogram,
-        ax=ax,
-        mask=mask
-    )
-
-    plt.savefig(outpath, bbox_inches="tight")
-    plt.close(fig)
+    with MaiaAxis(outpath, bbox_inches="tight") as ax:
+        mh.hist2dplot(
+            histogram,
+            ax=ax,
+            mask=mask
+        )

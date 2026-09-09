@@ -51,19 +51,7 @@ def main(args):
         analyzer.plot_s_eta_2d(genname, prefix=gen_input[genname][1])
 
     for event_id in mcdata:
-        analyzer.plot_clustering(event_id, prefix=event_id, reference_key="MC")
-
-    # analyzer.plot_overlay_comparison(mc_vars, gen_vars, prefix="aggr_log", normalized=False)
-    # analyzer.plot_overlay_comparison(mc_vars, gen_vars, prefix="aggr", normalized=False, log_scale=False)
-    # analyzer.plot_eta_phi_2d(mc_vars, prefix="mc", bins=50)
-    # analyzer.plot_eta_phi_2d(gen_vars, prefix="gen", bins=50)
-    # analyzer.plot_s_eta_2d(mc_vars, prefix="mc", bins=50)
-    # analyzer.plot_s_eta_2d(gen_vars, prefix="gen", bins=50)
-    # analyzer.plot_delta_r_clustering(mc_vars, prefix="mc")
-    # analyzer.plot_delta_r_clustering(gen_vars, prefix="gen")
-
-    # noise_vars = analyzer.load_from_model_output(np.random.normal(size=(len(mcdata), 4)), sphering=Sphering(mu, std))
-    # analyzer.plot_overlay_comparison(mc_vars, noise_vars, prefix="noise")
+        analyzer.plot_clustering(event_id, prefix=event_id, reference_key="MC", use_energy=True)
 
     return 0
 

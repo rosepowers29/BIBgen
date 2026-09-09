@@ -518,8 +518,10 @@ class ComparisonAnalyzer:
         reference_key : str = None,
         prefix : str = "",
         bins : int = 50,
-        dR_range = (0.001, 0.2)
+        dR_range = (0.001, 0.2),
+        use_energy : bool = True,
     ):
+        # Use all keys available
         if data_keys is None:
             data_keys = set(self.data.keys())
 
@@ -527,24 +529,26 @@ class ComparisonAnalyzer:
         for name in data_keys:
             etas = self.data[name][event_id]["eta"]
             phis = self.data[name][event_id]["phi"]
+            energies = self.data[name][event_id]["energy"]
             nhits = len(etas)
             event_hist = np.empty((nhits, bins))
 
             for ihit in range(nhits):
                 dRs = self.delta_r(etas[ihit], phis[ihit], etas, phis)
-                event_hist[ihit], bin_edges = np.histogram(dRs, bins=bins, range=dR_range)
+                event_hist[ihit], bin_edges = np.histogram(dRs, bins=bins, range=dR_range, weights=energies) if use_energy else np.histogram(dRs, bins=bins, range=dR_range)
 
             histograms[name] = (np.mean(event_hist, axis=0), bin_edges)
 
+        ylabel_base = "Average energy [GeV]" if use_energy else "Average # of hits"
         outname = prefix + "_clustering.png" if prefix != "" else "clustering.png"
         outpath = self.output_dir / outname
-        plotting.maia_hist1d(histograms, outpath, r"$\Delta R$", "Average # of hits")
+        plotting.maia_hist1d(histograms, outpath, r"$\Delta R$", ylabel_base)
 
         if reference_key is not None:
             ratio_histograms = {name : (histograms[name][0] / histograms[reference_key][0], histograms[name][1]) for name in histograms if name != reference_key}
             outname = prefix + "_clustering_ratio.png" if prefix != "" else "clustering_ratio.png"
             outpath = self.output_dir / outname
-            plotting.maia_hist1d(ratio_histograms, outpath, r"$\Delta R$", "Average # of hits / Average # of hits (MC)", ybounds=(0.8, 1.2))
+            plotting.maia_hist1d(ratio_histograms, outpath, r"$\Delta R$", "{} / {} ({})".format(ylabel_base, ylabel_base, reference_key), ybounds=(0.8, 1.2))
 
 def compare_mc_vs_generated(mc_hits: Dict[str, np.ndarray],
                            gen_hits: Dict[str, np.ndarray],
