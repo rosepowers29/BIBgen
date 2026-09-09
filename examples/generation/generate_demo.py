@@ -36,7 +36,7 @@ def main(args):
     schedule = torch.from_numpy(np.loadtxt(schedule_path)).to(device)
     
     model = EquivariantDenoiser(
-        n_timesteps = 100,
+        n_timesteps = len(schedule),
         tau_encoding_dimension = 32,
         position_encoding_dimension = 64,
         hidden_layer_size = 256,

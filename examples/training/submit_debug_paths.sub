@@ -1,0 +1,19 @@
+universe = container
+container_image = /cvmfs/singularity.opensciencegrid.org/htc/pytorch:2.3.1-cuda11.8
+
+log = debug_paths_$(Cluster)_$(Process).log
+error = debug_paths_$(Cluster)_$(Process).err
+output = debug_paths_$(Cluster)_$(Process).out
+
+executable = debug_paths.sh
+
++JobDurationCategory = "Medium"
+
+request_cpus = 1
+request_memory = 512MB
+request_disk = 512MB
+
+transfer_input_files = ../../config
+should_transfer_files = YES
+
+queue 1

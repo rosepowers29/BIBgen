@@ -8,6 +8,5 @@ pip install h5py
 
 # REPLACE with your executable
 export PYTHONPATH=$PWD/src:$PYTHONPATH
-python generate_like.py denoiser_v10.pth config/mlp_denoiser.json config/noise_schedule.csv test_sizes_large.csv 
-
+python generate_like.py $1 config/$2 config/$4 test_sizes_large.csv -t $3
 # END

@@ -1,0 +1,27 @@
+universe = container
+container_image = /cvmfs/singularity.opensciencegrid.org/htc/pytorch:2.3.1-cuda11.8
+
+log = debug_train_$(Cluster)_$(Process).log
+error = debug_train_$(Cluster)_$(Process).err
+output = debug_train_$(Cluster)_$(Process).out
+
+executable = run_train.sh
+arguments = $(data) $(config) $(tag) $(schedule)
+
++JobDurationCategory = "Medium"
+
+request_cpus = 1
+request_memory = 1GB
+request_disk = 1GB
+
+# No GPU request on purpose: tiny synthetic data trains instantly on CPU, and this
+# skips the GPU-slot wait that made the real path/argument bugs so slow to iterate on.
+# Uses the real run_train.sh unmodified, and the real config/ transfer (which now also
+# carries config/debug_noise_schedule.csv) -- this exercises the exact same argument
+# mapping and file-transfer code path as submit_train.sub, just pointed at debug_diffused.hdf5
+# (transferred directly, not via osdf) instead of the real dataset.
+transfer_input_files = train.py, ../../src, ../../config, debug_diffused.hdf5
+transfer_output_files = denoiser_$(tag).pth, history_$(tag).csv
+should_transfer_files = YES
+
+queue data,config,tag,schedule from debug_experiments.txt

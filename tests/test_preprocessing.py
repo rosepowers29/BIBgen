@@ -1,3 +1,5 @@
+from pathlib import Path
+
 import pytest
 import numpy as np
 
@@ -35,3 +37,15 @@ def test_diffuse():
 
     assert np.all(result[0] == data)
     assert np.mean(result[-1], axis=0) == pytest.approx(np.zeros(5), abs=0.15)
+
+def test_quadratic_beta_schedule_matches_baseline():
+    schedule = quadratic_beta_schedule(100, scale=3e-5)
+    baseline = np.loadtxt(Path(__file__).parent.parent / "config" / "noise_schedule.csv")
+    assert np.array_equal(schedule, baseline)
+
+def test_cosine_beta_schedule_hits_target_alpha_bar():
+    schedule = cosine_beta_schedule(100, target_alpha_bar_T=1e-5)
+    alpha_bar_T = np.prod(1 - schedule)
+    assert alpha_bar_T == pytest.approx(1e-5, rel=1e-6)
+    assert np.all(schedule > 0)
+    assert np.all(schedule <= 0.999)

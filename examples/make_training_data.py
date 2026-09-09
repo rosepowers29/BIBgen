@@ -6,11 +6,22 @@ import numpy as np
 
 from BIBgen.preprocessing import Sphering
 
+def build_unsphered(event_id, gather, use_cylindrical, min_phi, max_phi, log_energy):
+    e_raw = gather(event_id, "hit_energy")
+    x_raw = gather(event_id, "hit_x_pos")
+    y_raw = gather(event_id, "hit_y_pos")
+    z_raw = gather(event_id, "hit_z_pos")
+
+    if log_energy:
+        e_raw = np.log(e_raw)
+
+    if use_cylindrical:
+        phi_raw = np.arctan2(y_raw, x_raw)
+        s_raw = np.sqrt(x_raw**2 + y_raw**2)
+        return np.stack([e_raw, phi_raw, s_raw, z_raw], axis=-1)[(phi_raw <= max_phi) & (phi_raw >= min_phi)]
+    return np.stack([e_raw, x_raw, y_raw, z_raw], axis=-1)
+
 def main(args):
-    """
-    Example:
-    uv run make_training_data.py /scratch/rosep8/BIBgen/src/BIBgen/sim_mm_0_1000.hdf5 /scratch/rosep8/BIBgen/src/BIBgen/sim_mp_0_1000.hdf5 -o raw_cyl_phipi4_large.hdf5 -s 700,200,100 -c -p 0.785398
-    """
     mm_path = args.mm_path
     mp_path = args.mp_path
     outpath = args.out
@@ -18,6 +29,7 @@ def main(args):
     use_cylindrical = args.cylindrical
     max_phi = args.phi_window
     min_phi = -args.phi_window
+    log_energy = not args.raw_energy   # default: ln(E); pass --raw-energy for raw E
     assert mm_path.endswith(".hdf5")
     assert mp_path.endswith(".hdf5")
     assert outpath.endswith(".hdf5")
@@ -33,9 +45,7 @@ def main(args):
     outfile = h5py.File(outpath, "w")
     gather = lambda ev, key: np.concatenate([
         mmfile["{}/ECalColls/ECalBarrelCollection/{}".format(ev, key)],
-        # mmfile["{}/ECalColls/ECalEndcapCollection/{}".format(ev, key)],
         mpfile["{}/ECalColls/ECalBarrelCollection/{}".format(ev, key)],
-        # mpfile["{}/ECalColls/ECalEndcapCollection/{}".format(ev, key)],
     ])
 
     nevents = len(mmfile.keys())
@@ -43,24 +53,10 @@ def main(args):
     nval = int(data_split[1])
     ntest = int(data_split[2])
 
-    # Training
     train_unsphered = []
     for ievent in range(ntrain):
         event_id = "evt_{}".format(ievent)
-
-        e_raw = gather(event_id, "hit_energy")
-        x_raw = gather(event_id, "hit_x_pos")
-        y_raw = gather(event_id, "hit_y_pos")
-        z_raw = gather(event_id, "hit_z_pos")
-
-        if use_cylindrical:
-            phi_raw = np.arctan2(y_raw, x_raw)
-            s_raw = np.sqrt(x_raw**2 + y_raw**2)
-            unsphered = np.stack([e_raw, phi_raw, s_raw, z_raw], axis=-1)[(phi_raw <= max_phi) & (phi_raw >= min_phi)]
-        else:
-            unsphered = np.stack([e_raw, x_raw, y_raw, z_raw], axis=-1)
-
-        train_unsphered.append(unsphered)
+        train_unsphered.append(build_unsphered(event_id, gather, use_cylindrical, min_phi, max_phi, log_energy))
         print("Processed {} for training".format(event_id))
 
     sphering = Sphering.from_spherings([Sphering.from_data(d) for d in train_unsphered])
@@ -75,49 +71,25 @@ def main(args):
     sphere_group = outfile.create_group("transformation")
     sphere_group.create_dataset("mu", data=sphering.mu)
     sphere_group.create_dataset("std", data=sphering.std)
+    sphere_group.attrs["log_energy"] = log_energy
 
     del train
     del train_unsphered
 
-    # Validation
     val_group = outfile.create_group("validation")
     for ievent in range(ntrain, ntrain+nval):
         event_id = "evt_{}".format(ievent)
-
-        e_raw = gather(event_id, "hit_energy")
-        x_raw = gather(event_id, "hit_x_pos")
-        y_raw = gather(event_id, "hit_y_pos")
-        z_raw = gather(event_id, "hit_z_pos")
-
-        if use_cylindrical:
-            phi_raw = np.arctan2(y_raw, x_raw)
-            s_raw = np.sqrt(x_raw**2 + y_raw**2)
-            unsphered = np.stack([e_raw, phi_raw, s_raw, z_raw], axis=-1)[(phi_raw <= max_phi) & (phi_raw >= min_phi)]
-        else:
-            unsphered = np.stack([e_raw, x_raw, y_raw, z_raw], axis=-1)
-
+        unsphered = build_unsphered(event_id, gather, use_cylindrical, min_phi, max_phi, log_energy)
         sphered = sphering.transform(unsphered)
 
         event_group = val_group.create_group(event_id)
         event_group.create_dataset("tau0", data=sphered)
         print("Processed {} for validation".format(event_id))
 
-    # Test
     test_group = outfile.create_group("test")
     for ievent in range(ntrain+nval, ntrain+nval+ntest):
         event_id = "evt_{}".format(ievent)
-
-        e_raw = gather(event_id, "hit_energy")
-        x_raw = gather(event_id, "hit_x_pos")
-        y_raw = gather(event_id, "hit_y_pos")
-        z_raw = gather(event_id, "hit_z_pos")
-
-        if use_cylindrical:
-            phi_raw = np.arctan2(y_raw, x_raw)
-            s_raw = np.sqrt(x_raw**2 + y_raw**2)
-            unsphered = np.stack([e_raw, phi_raw, s_raw, z_raw], axis=-1)[(phi_raw <= max_phi) & (phi_raw >= min_phi)]
-        else:
-            unsphered = np.stack([e_raw, x_raw, y_raw, z_raw], axis=-1)
+        unsphered = build_unsphered(event_id, gather, use_cylindrical, min_phi, max_phi, log_energy)
 
         event_group = test_group.create_group(event_id)
         event_group.create_dataset("tau0", data=unsphered)
@@ -126,7 +98,6 @@ def main(args):
     mmfile.close()
     mpfile.close()
     outfile.close()
-
     return 0
 
 if __name__ == "__main__":
@@ -136,5 +107,6 @@ if __name__ == "__main__":
     parser.add_argument("-o", "--out", default="raw_data.hdf5", help="path to output")
     parser.add_argument("-s", "--split", default="700,200,100", help="training,validation,test split")
     parser.add_argument("-c", "--cylindrical", action="store_true", help="Whether the training data should be in cylindrical coordinates")
-    parser.add_argument("-p", "--phi-window", default=np.pi, type=float, help="Phi to slice the data. Data will only be kept in a slice betwee -phi and phi")
+    parser.add_argument("-p", "--phi-window", default=np.pi, type=float, help="Phi to slice the data.")
+    parser.add_argument("--raw-energy", action="store_true", help="Store raw E instead of the default ln(E)")
     print("\nFinished with exit code:", main(parser.parse_args()))

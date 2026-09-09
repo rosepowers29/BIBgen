@@ -1,12 +1,13 @@
 universe = container
 container_image = /cvmfs/singularity.opensciencegrid.org/htc/pytorch:2.3.1-cuda11.8
 
-log = job_$(Cluster)_$(Process).log
-error = job_$(Cluster)_$(Process).err
-output = job_$(Cluster)_$(Process).out
+log = job_$(tag)_$(Cluster)_$(Process).log
+error = job_$(tag)_$(Cluster)_$(Process).err
+output = job_$(tag)_$(Cluster)_$(Process).out
 
 # bash script calling your executable along with path variables and appropriate environment setup
 executable = run_generate_like.sh
+arguments = denoiser_$(tag).pth $(config) $(tag) $(schedule)
 
 # REPLACE with "Long" if job is predicted to take over 40 hrs
 +JobDurationCategory = "Medium"
@@ -24,11 +25,11 @@ request_disk = 4GB
 #--------------FILE TRANSFER HANDLING-----------------#
 
 # REPLACE with the executable in your submit.sh script and any input files 
-transfer_input_files = ../../src, generate_like.py, ../../config, test_sizes_large.csv, ../training/denoiser_v10.pth
+transfer_input_files = ../../src, generate_like.py, ../../config, test_sizes_large.csv, ../training/denoiser_$(tag).pth
 
 # REPLACE with output files
-transfer_output_files = like.hdf5
+transfer_output_files = $(tag)_like.hdf5
 should_transfer_files = YES
 
 # REPLACE with however many jobs you are queuing 
-queue 1
+queue config,tag,schedule from generate_experiments.txt
