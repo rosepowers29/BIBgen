@@ -18,6 +18,10 @@ gpus_minimum_capability = 7.5
 request_gpus = 1
 request_cpus = 1
 
+# Blacklist Notre Dame GPUs, comment out later
+requirements = (GLIDEIN_ResourceName =!= "ND-CAML-GPU-CE1")
+max_retries = 3
+
 #change as appropriate
 request_memory = 2GB
 request_disk = 4GB

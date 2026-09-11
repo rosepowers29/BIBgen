@@ -12,7 +12,11 @@ arguments = $(data) $(config) $(tag) $(schedule)
 
 gpus_minimum_capability = 7.5
 request_gpus = 1
+
+# Blacklist Notre Dame GPUs, comment out later
 requirements = (GLIDEIN_ResourceName =!= "ND-CAML-GPU-CE1")
+max_retries = 3
+
 request_cpus = 1
 request_memory = 16GB
 request_disk = 50GB

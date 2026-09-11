@@ -105,12 +105,21 @@ trained with.
 ## Analysis
 
 ```bash
-python plot_comparison.py [mc_file] [gen_file]
+python plot_comparison.py [mc_file] [gen_file.hdf5],[name] ...
 ```
 
-Output directory defaults to ``plots/<tag>``, inferred from the generated file's name. Whether
-the energy feature needs exponentiating back from ``ln(E)`` is auto-detected from the MC file;
-override with ``-l {auto,yes,no}`` if needed.
+Each generated file is given as a ``path,name`` pair; ``name`` is the legend label used for that
+dataset in the overlay, 2D and clustering plots. Pass more than one pair to compare several models
+against the same MC on the same axes.
+
+Output directory defaults to ``plots/<tag>``, inferred from the first generated file's name;
+``-t/--tag`` overrides it. Whether the energy feature needs exponentiating back from ``ln(E)`` is
+auto-detected from the MC file; override with ``-l {auto,yes,no}`` if needed.
+
+``wasserstein_distances.csv`` is written with one row per (generated dataset, variable). Its
+``tag`` column is the experiment tag inferred from each generated file's name, so the rows still
+join against ``history_<tag>.csv`` when several models are plotted in one run; ``-t/--tag`` sets
+that column too when there is exactly one generated file.
 
 ## Ablation Analysis
 
