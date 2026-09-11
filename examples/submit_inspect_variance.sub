@@ -1,0 +1,24 @@
+universe = container
+container_image = /cvmfs/singularity.opensciencegrid.org/htc/pytorch:2.3.1-cuda11.8
+
+log = inspect_variance_$(Cluster)_$(Process).log
+error = inspect_variance_$(Cluster)_$(Process).err
+output = inspect_variance_$(Cluster)_$(Process).out
+
+executable = run_inspect_variance.sh
+arguments = $(tag) $(config) $(schedule)
+
++JobDurationCategory = "Medium"
+
+request_cpus = 1
+request_memory = 2GB
+request_disk = 2GB
+
+# No GPU: this is a tiny CPU forward-pass sweep, and skipping the GPU request means
+# a much faster turnaround. Runs on a real execute node instead of the shared access
+# point, avoiding the thread-oversubscription/contention that access points are prone to.
+transfer_input_files = ../src, inspect_predicted_variance.py, ../config, training/denoiser_$(tag).pth
+transfer_output_files = predicted_variance_$(tag).png, predicted_variance_$(tag).csv
+should_transfer_files = YES
+
+queue tag,config,schedule from inspect_variance_experiments.txt

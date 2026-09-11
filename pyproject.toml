@@ -32,6 +32,10 @@ dev = [
 	{include-group = "test"},
   "torchvision",
 ]
+analysis = [
+	"adjustText",
+	"pandas",
+]
 
 [tool.ruff.lint]
 extend-select = [

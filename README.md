@@ -14,6 +14,13 @@ uv pip install .
 ```
 
 To do more than look around, the package should be run on an access point of the OSPool. To get access to an OSG machine, fill out the application at [this link](https://www.osgconnect.net/signup). 
+
+## Configuration
+
+Model architecture and preprocessing options (position encoding, energy transform) are set via
+JSON configs and command-line flags — see ``examples/README.md`` for details. Defaults: no
+positional encoding, ``log(E)`` energy feature.
+
 ## Testing
 
 To run tests, use:

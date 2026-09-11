@@ -1,4 +1,5 @@
 from typing import Sequence, Iterable
+import warnings
 
 import numpy as np
 from numpy.typing import ArrayLike
@@ -168,3 +169,78 @@ def diffuse(features : ArrayLike, betas : Sequence) -> ArrayLike:
         result[tau + 1] = np.sqrt(1 - betas[tau]) * result[tau] + np.sqrt(betas[tau]) * z[tau]
 
     return result
+
+def quadratic_beta_schedule(n_timesteps : int, scale : float = 3e-5) -> np.ndarray:
+    r"""
+    Quadratic noise schedule: $\beta_\tau = \text{scale} \cdot \tau^2$ for $\tau = 1 \dots T$.
+
+    With the defaults (``n_timesteps=100, scale=3e-5``), this reproduces ``config/noise_schedule.csv``
+    exactly ($\beta_{max} = 0.3$, $\bar\alpha_T \approx 1.3\times 10^{-5}$).
+
+    Parameters
+    ----------
+    n_timesteps : int
+        Number of diffusion timesteps $T$.
+    scale : float
+        Coefficient multiplying $\tau^2$.
+
+    Returns
+    -------
+    betas : numpy.ndarray
+        Array of shape `(n_timesteps,)` with $\beta_\tau$ for $\tau = 1 \dots T$.
+    """
+    tau = np.arange(1, n_timesteps + 1)
+    return scale * tau**2
+
+def cosine_beta_schedule(
+    n_timesteps : int,
+    s : float = 0.008,
+    target_alpha_bar_T : float = 1e-5,
+    beta_clip : float = 0.999,
+) -> np.ndarray:
+    r"""
+    Cosine-derived noise schedule (Nichol & Dhariwal, "Improved Denoising Diffusion
+    Probabilistic Models", 2021), adapted to hit an explicit terminal $\bar\alpha_T$ rather
+    than driving it asymptotically to zero as in the original (which assumes $T \approx 1000$).
+
+    Defines $f(t) = \cos^2(\theta(t))$ for $t = 0 \dots T$, where $\theta(t)$ is linearly
+    interpolated between $\theta_0 = \frac{\pi}{2}\frac{s}{1+s}$ and $\theta_1$, with $\theta_1$
+    solved so that $\bar\alpha_T = f(T)/f(0)$ equals ``target_alpha_bar_T`` exactly. Then
+    $\beta_\tau = 1 - \bar\alpha_\tau / \bar\alpha_{\tau - 1}$, clipped at ``beta_clip`` as a
+    defensive numerical fuse.
+
+    Parameters
+    ----------
+    n_timesteps : int
+        Number of diffusion timesteps $T$.
+    s : float
+        Small offset controlling the schedule's curvature near $\tau=0$, as in the original paper.
+    target_alpha_bar_T : float
+        Desired cumulative product $\bar\alpha_T = \prod_\tau (1-\beta_\tau)$ at the final timestep.
+    beta_clip : float
+        Maximum allowed $\beta_\tau$; values above this are clipped and a warning is raised.
+
+    Returns
+    -------
+    betas : numpy.ndarray
+        Array of shape `(n_timesteps,)` with $\beta_\tau$ for $\tau = 1 \dots T$.
+    """
+    theta0 = (np.pi / 2) * (s / (1 + s))
+    theta1 = np.arccos(np.sqrt(target_alpha_bar_T) * np.cos(theta0))
+
+    t = np.arange(0, n_timesteps + 1)
+    theta = theta0 + (theta1 - theta0) * t / n_timesteps
+    f = np.cos(theta) ** 2
+    alpha_bar = f / f[0]
+
+    beta = 1 - alpha_bar[1:] / alpha_bar[:-1]
+    n_clipped = int(np.sum(beta > beta_clip))
+    if n_clipped:
+        warnings.warn(
+            f"{n_clipped} beta value(s) exceeded beta_clip={beta_clip} and were clipped; "
+            "the requested (n_timesteps, s, target_alpha_bar_T) combination pushes the "
+            "cosine schedule past what beta_clip can represent honestly — consider raising "
+            "target_alpha_bar_T or reducing n_timesteps.",
+            stacklevel=2,
+        )
+    return np.minimum(beta, beta_clip)

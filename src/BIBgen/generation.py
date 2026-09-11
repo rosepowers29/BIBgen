@@ -67,6 +67,8 @@ def generate_sphered(
 
             if verbosity >= 2:
                 print("tau", tau,
+                "mu mean", mu.abs().mean().item(), "mu max", mu.abs().max().item(),
+                "var mean", var.mean().item(), "var max", var.max().item(),
                 "x max", current_event.abs().max().item(),
                 "x mean", current_event.abs().mean().item(),
                 flush=True)

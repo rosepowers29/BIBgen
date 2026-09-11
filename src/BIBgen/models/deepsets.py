@@ -77,7 +77,9 @@ class EquivariantDenoiser(nn.Module):
         n_hidden_layers : int,
         nhits_normalization : int = 9_000,
         predict_variances : bool = False,
-        disable_interactions : bool = False
+        disable_interactions : bool = False,
+        use_position_encoding : bool = False,   # default flipped
+        log_frequency : bool = False,
     ):
         """
         Denoising model using a deep equivariant tower for prediction.
@@ -102,15 +104,22 @@ class EquivariantDenoiser(nn.Module):
         """
         super().__init__()
 
-        self.pos1_encoding = common.FourierEncoding(position_encoding_dimension)
-        self.pos2_encoding = common.FourierEncoding(position_encoding_dimension)
-        self.pos3_encoding = common.FourierEncoding(position_encoding_dimension)
-        self.tau_encoding = common.FourierEncoding(tau_encoding_dimension)
-        encoding_size = tau_encoding_dimension + 4 + 1 + 3 * position_encoding_dimension
         self.n_timesteps = n_timesteps
         self.nhits_norm = nhits_normalization
         self.disable_interactions = disable_interactions
-        
+        self.use_position_encoding = use_position_encoding
+
+        if self.use_position_encoding:
+            self.pos1_encoding = common.FourierEncoding(position_encoding_dimension, log_frequency=log_frequency)
+            self.pos2_encoding = common.FourierEncoding(position_encoding_dimension, log_frequency=log_frequency)
+            self.pos3_encoding = common.FourierEncoding(position_encoding_dimension, log_frequency=log_frequency)
+            pos_size = 3 * position_encoding_dimension
+        else:
+            pos_size = 0
+
+        self.tau_encoding = common.FourierEncoding(tau_encoding_dimension)
+        encoding_size = tau_encoding_dimension + 4 + 1 + pos_size
+
         equivariant_layers = [
             ("hidden0", self.get_layer(encoding_size, hidden_layer_size)),
             ("activation0", nn.ReLU())
@@ -128,44 +137,21 @@ class EquivariantDenoiser(nn.Module):
         self.prediction_tower = nn.Sequential(OrderedDict(equivariant_layers))
 
     def forward(self, input_set : torch.Tensor, tau : torch.Tensor):
-        """
-        Forward pass that predicts `tau` state of `input_set`,
-        and the associated variance of the prediction.
-
-        Parameters
-        ----------
-        input_set : torch.Tensor
-            Input set at 'tau + 1' state with shape (n_batch, n_members, 4) or (n_members, 4) with features:
-            (Edepm, x1, x2, x3).
-        tau : torch.Tensor
-            Diffusion time step of `input_set` with shape (n_batch,) if batched.
-
-        Returns
-        -------
-        prediction : torch.Tensor
-            Prediction of the `tau` state also with shape (n_batch, n_members, 4) or (n_members, 4)
-        variance : float
-            Variance of all elements of the prediction if requested.
-        """
         nhits = input_set.shape[-2]
 
-        tau_encoded = self.tau_encoding(tau / self.n_timesteps) # (n_batch, tau_encoding_dimension)
-        tau_encoded = tau_encoded.unsqueeze(-2).expand(*tau_encoded.shape[:-1], nhits, -1) # (n_batch, n_members, tau_encoding_dimension)
-    
-        pos1_encoded = self.pos1_encoding(input_set[...,1]) # (n_batch, n_members, positional_encoding_dimension)
-        pos2_encoded = self.pos2_encoding(input_set[...,2]) # (n_batch, n_members, positional_encoding_dimension)
-        pos3_encoded = self.pos3_encoding(input_set[...,3]) # (n_batch, n_members, positional_encoding_dimension)
+        tau_encoded = self.tau_encoding(tau / self.n_timesteps)
+        tau_encoded = tau_encoded.unsqueeze(-2).expand(*tau_encoded.shape[:-1], nhits, -1)
 
-        nhits_feature = torch.log(input_set.new_full((*input_set.shape[:-1], 1), nhits / self.nhits_norm + 1)) # (n_batch, n_members, 1)
+        nhits_feature = torch.log(input_set.new_full((*input_set.shape[:-1], 1), nhits / self.nhits_norm + 1))
 
-        encoded_set = torch.cat((
-            tau_encoded,
-            input_set[...,0:4],
-            nhits_feature,
-            pos1_encoded,
-            pos2_encoded,
-            pos3_encoded,
-        ), axis=-1)
+        features = [tau_encoded, input_set[...,0:4], nhits_feature]
+        if self.use_position_encoding:
+            pos1_encoded = self.pos1_encoding(input_set[...,1])
+            pos2_encoded = self.pos2_encoding(input_set[...,2])
+            pos3_encoded = self.pos3_encoding(input_set[...,3])
+            features += [pos1_encoded, pos2_encoded, pos3_encoded]
+
+        encoded_set = torch.cat(features, axis=-1)
         out = self.prediction_tower(encoded_set)
 
         if self.predict_variances:

@@ -10,9 +10,8 @@ import matplotlib.pyplot as plt
 from typing import Dict, List, Tuple, Optional
 from pathlib import Path
 
-from BIBgen.analysis import plotting
 
-class ComparisonAnalyzer:
+class BIBgenHistogramAnalyzer:
     """Histogram analyzer for BIB detector hits in cylindrical coordinates."""
     
     def __init__(self,
@@ -29,16 +28,8 @@ class ComparisonAnalyzer:
         self.s_range = s_range
         self.z_range = z_range
 
-        self.data = {}
-        self.aggr_data = {}
-
         self.output_dir = Path(output_dir)
         self.output_dir.mkdir(parents=True, exist_ok=True)
-
-    def aggregated_data(self, keys=None):
-        if keys is None:
-            keys = set(self.data.keys())
-        return {name : np.concatenate(self.data[name], axis=0) for name in self.data if name in keys}
     
     def compute_eta_from_cylindrical(self, s: np.ndarray, z: np.ndarray) -> np.ndarray:
         """
@@ -163,9 +154,10 @@ class ComparisonAnalyzer:
         
         return {'energy': energy, 'phi': phi, 's': s, 'z': z, 'eta': eta}
     
-    def load_from_dict(self, name : str, events : dict, 
+    def load_from_model_output(self, model_output: np.ndarray, 
                                is_sphered: bool = True,
-                               sphering = None) -> Dict[str, np.ndarray]:
+                               sphering = None,
+                               exponentiate_energy: bool = False) -> Dict[str, np.ndarray]:
         """
         Load data from model output array.
         
@@ -177,30 +169,24 @@ class ComparisonAnalyzer:
         Returns:
             Dictionary with arrays: energy, phi, s, z, eta
         """
-        events_processed = {}
-        aggr_processed = {'energy': [], 'phi': [], 's': [], 'z': [], 'eta': []}
-        for event_id in events:
-            if is_sphered:
-                if sphering is None:
-                    raise ValueError("Sphering object required for normalized data")
-                data = sphering.untransform(events[event_id])
-            else:
-                data = events[event_id]
-            
-            energy = data[:, 0]
-            phi = data[:, 1]
-            s = data[:, 2]
-            z = data[:, 3]
-            eta = self.compute_eta_from_cylindrical(s, z)
-
-            events_processed[event_id] = {'energy': energy, 'phi': phi, 's': s, 'z': z, 'eta': eta}
-            for var in events_processed[event_id]:
-                aggr_processed[var].append(events_processed[event_id][var])
-            
-        self.data[name] = events_processed
-        self.aggr_data[name] = {var : np.concatenate(aggr_processed[var], axis=0)for var in aggr_processed}
+        if is_sphered:
+            if sphering is None:
+                raise ValueError("Sphering object required for normalized data")
+            data = sphering.untransform(model_output)
+        else:
+            data = model_output
+        
+        energy = data[:, 0]
+        if exponentiate_energy:
+            energy = np.exp(energy)
+        phi = data[:, 1]
+        s = data[:, 2]
+        z = data[:, 3]
+        eta = self.compute_eta_from_cylindrical(s, z)
+        
+        return {'energy': energy, 'phi': phi, 's': s, 'z': z, 'eta': eta}
     
-    def delta_r(self, eta1: np.ndarray, phi1: np.ndarray,
+    def compute_delta_r(self, eta1: np.ndarray, phi1: np.ndarray,
                        eta2: np.ndarray, phi2: np.ndarray) -> np.ndarray:
         """Compute Delta R metric between coordinate pairs."""
         delta_eta = eta1 - eta2
@@ -235,7 +221,7 @@ class ComparisonAnalyzer:
         hits_in_cone = np.zeros(n_hits, dtype=int)
         
         for i in range(n_hits):
-            delta_r = self.delta_r(eta[i], phi[i], eta, phi)
+            delta_r = self.compute_delta_r(eta[i], phi[i], eta, phi)
             hits_in_cone[i] = np.sum((delta_r < delta_r_threshold) & (delta_r > 0))
         
         return hits_in_cone
@@ -311,52 +297,43 @@ class ComparisonAnalyzer:
         plt.tight_layout()
         plt.savefig(self.output_dir / f"{prefix}_basic_observables.png", dpi=300, bbox_inches='tight')
         plt.close()
-    
-    def plot_eta_phi_2d(self,
-        name : str,
-        prefix : str = "",
-        bins: int | tuple = 50
-    ):
-        """Generate 2D histogram of eta vs phi."""
-        outname = prefix + "_eta_phi_2d.png" if prefix != "" else "eta_phi_2d.png"
-        outpath = self.output_dir / outname
-        plotting.maia_hist2d(
-            np.histogram2d(
-                self.aggr_data[name]["eta"],
-                self.aggr_data[name]["phi"],
-                bins=bins,
-                range=(self.eta_range, self.phi_range)
-            ),
-            outpath,
-            r"$\eta$",
-            r"$\phipwa$",
-            self.eta_range,
-            self.phi_range,
-            mask_zero=True
-        )
 
-    def plot_s_eta_2d(self,
-        name : str,
-        prefix : str = "",
-        bins: int | tuple = 50
-    ):
-        outname = prefix + "_s_eta_2d.png" if prefix != "" else "s_eta_2d.png"
-        outpath = self.output_dir / outname
-        plotting.maia_hist2d(
-            np.histogram2d(
-                self.aggr_data[name]["s"],
-                self.aggr_data[name]["eta"],
-                bins=bins,
-                range=(self.s_range, self.eta_range)
-            ),
-            outpath,
-            "s [mm]",
-            r"$\eta$",
-            self.s_range,
-            self.eta_range,
-            mask_zero=True
-        )
+    def _plot_2d(self, var1, var2, range1, range2, label1, label2, title, bins, outfile):
+        fig, ax = plt.subplots(figsize=(10, 8))
+
+        h = ax.hist2d(var1, var2, bins=bins, cmap='viridis', cmin=1, range=(range1, range2))
+        plt.colorbar(h[3], ax=ax, label='Hits')
         
+        ax.set_xlabel(label1, fontsize=12)
+        ax.set_ylabel(label2, fontsize=12)
+        ax.set_title(title, fontsize=14, fontweight='bold')
+        ax.set_ylim(*range2)
+        ax.set_xlim(*range1)
+        ax.grid(True, alpha=0.3)
+        
+        plt.tight_layout()
+        plt.savefig(self.output_dir / outfile, dpi=300, bbox_inches='tight')
+        plt.close()
+    
+    def plot_eta_phi_2d(self, hits: Dict[str, np.ndarray],
+                        prefix: str = "bib",
+                        bins: int = 100):
+        """Generate 2D histogram of eta vs phi."""
+        self._plot_2d(hits['eta'], hits['phi'], self.eta_range, self.phi_range, 'η', 'φ [rad]', 'Hit Distribution in η-φ Space', bins, f"{prefix}_eta_phi_2d.png")
+
+    def plot_s_eta_2d(self, hits: Dict[str, np.ndarray],
+                        prefix: str = "bib",
+                        bins: int = 100):
+        self._plot_2d(hits['s'], hits['eta'], self.s_range, self.eta_range, 's [mm]', 'η', 'Hit Distribution in s-η Space', bins, f"{prefix}_s_eta_2d.png")
+    
+    def plot_clustering_comparison(self,
+        mc_hits: Dict[str, np.ndarray],
+        gen_hits: Dict[str, np.ndarray],
+        prefix : str = "bib",
+        max_hits_sample: int = 10000,
+        bins : int = 50
+    ):
+        pass  # TODO: implement
 
     def plot_delta_r_clustering(self, hits: Dict[str, np.ndarray],
                                 prefix: str = "bib",
@@ -404,16 +381,98 @@ class ComparisonAnalyzer:
         self.plot_eta_phi_2d(hits, prefix)
         self.plot_delta_r_clustering(hits, prefix, max_hits_sample=max_hits_for_clustering)
     
-    def plot_kinematics_1d(self,
-        name1 : str,
-        name2 : str,
+    def plot_overlay_comparison_with_residuals(self, mc_hits, gen_hits,
+                                            prefix="comparison",
+                                            bins=100,
+                                            normalized=False,
+                                            log_scale : bool = True):
+        """
+        Same five variables as plot_overlay_comparison (energy, phi, eta, s, z),
+        but adds a residual panel (Gen - MC, per bin) beneath each histogram,
+        sharing the same x-axis and bin edges as the panel above it.
+        """
+        import matplotlib.gridspec as gridspec
+
+        fig = plt.figure(figsize=(18, 13))
+        gs = gridspec.GridSpec(4, 3, height_ratios=[3, 1, 3, 1], hspace=0.5, wspace=0.3)
+        fig.suptitle('MC vs Generated (with residuals)', fontsize=16, fontweight='bold')
+
+        # (row of main panel, col, data key, xlabel, title, xlim, yscale)
+        panel_specs = [
+            (0, 0, 'energy', 'Energy [GeV]', 'Energy',   (0, 0.005),      'log'),
+            (0, 1, 'phi',    'φ [rad]',      'φ',        (-1.0, 1.0),     'linear'),
+            (0, 2, 'eta',    'η',            'η',        (-1.5, 1.5),     'linear'),
+            (2, 0, 's',      's [mm]',       'Radial',   (1700, 2300),    'log'),
+            (2, 1, 'z',      'z [mm]',       'Z Position', (-2800, 2800), 'linear'),
+        ]
+
+        for row0, col, key, xlabel, title, xlim, yscale in panel_specs:
+            ax_main = fig.add_subplot(gs[row0, col])
+            ax_res = fig.add_subplot(gs[row0 + 1, col], sharex=ax_main)
+
+            mc_vals = mc_hits[key]
+            gen_vals = gen_hits[key]
+            if key == 'eta':
+                mc_vals = mc_vals[np.isfinite(mc_vals)]
+                gen_vals = gen_vals[np.isfinite(gen_vals)]
+
+            mc_counts, edges = np.histogram(mc_vals, bins=bins, range=xlim, density=normalized)
+            gen_counts, _ = np.histogram(gen_vals, bins=edges, density=normalized)
+            centers = 0.5 * (edges[:-1] + edges[1:])
+
+            ax_main.step(centers, mc_counts, where='mid', color='blue', linewidth=2, label='MC')
+            ax_main.step(centers, gen_counts, where='mid', color='red', linewidth=2, label='Generated')
+            ax_main.set_ylabel('Counts', fontsize=11)
+            ax_main.set_title(title, fontsize=13, fontweight='bold')
+            ax_main.set_xlim(*xlim)
+            if yscale == 'log':
+                ax_main.set_yscale('log')
+            ax_main.legend(fontsize=9)
+            ax_main.grid(True, alpha=0.3)
+            plt.setp(ax_main.get_xticklabels(), visible=False)  # avoid duplicate x-labels above the residual panel
+
+            residual = gen_counts - mc_counts
+            ax_res.axhline(0, color='black', linewidth=1, linestyle='--')
+            ax_res.bar(centers, residual, width=(edges[1] - edges[0]), color='gray', alpha=0.7)
+            ax_res.set_xlabel(xlabel, fontsize=11)
+            ax_res.set_ylabel('Gen - MC', fontsize=9)
+            ax_res.set_xlim(*xlim)
+            ax_res.grid(True, alpha=0.3)
+
+        # Stats panel spans the s/z row block, third column -- no residual needed here
+        ax_stats = fig.add_subplot(gs[2:4, 2])
+        ax_stats.axis('off')
+        eta_mc = mc_hits['eta'][np.isfinite(mc_hits['eta'])]
+        eta_gen = gen_hits['eta'][np.isfinite(gen_hits['eta'])]
+        stats = f"""
+        MC vs Generated
+        ───────────────
+
+        Hits:
+            MC:  {len(mc_hits['energy']):,}
+            Gen: {len(gen_hits['energy']):,}
+
+        Energy mean:
+            MC:  {np.mean(mc_hits['energy']):.3f}
+            Gen: {np.mean(gen_hits['energy']):.3f}
+
+        η range:
+            MC:  [{np.min(eta_mc):.2f}, {np.max(eta_mc):.2f}]
+            Gen: [{np.min(eta_gen):.2f}, {np.max(eta_gen):.2f}]
+        """
+        ax_stats.text(0.1, 0.5, stats, fontsize=10, verticalalignment='center',
+                family='monospace', bbox=dict(boxstyle='round', facecolor='wheat', alpha=0.3))
+
+        plt.savefig(self.output_dir / f"{prefix}_overlay_residuals.png", dpi=300, bbox_inches='tight')
+        plt.close()
+
+    def plot_overlay_comparison(self, mc_hits: Dict[str, np.ndarray],
+                                gen_hits: Dict[str, np.ndarray],
                                 prefix: str = "comparison",
                                 bins: int = 100,
                                 normalized : bool = True,
                                 log_scale : bool = True):
         """Plot MC and generated data overlayed on same axes."""
-        mc_hits = self.aggr_data[name1]
-        gen_hits = self.aggr_data[name2]
         
         fig, axes = plt.subplots(2, 3, figsize=(18, 12))
         fig.suptitle('MC vs Generated', fontsize=16, fontweight='bold')
@@ -518,8 +577,10 @@ class ComparisonAnalyzer:
         reference_key : str = None,
         prefix : str = "",
         bins : int = 50,
-        dR_range = (0.001, 0.2)
+        dR_range = (0.001, 0.2),
+        use_energy : bool = True,
     ):
+        # Use all keys available
         if data_keys is None:
             data_keys = set(self.data.keys())
 
@@ -527,24 +588,26 @@ class ComparisonAnalyzer:
         for name in data_keys:
             etas = self.data[name][event_id]["eta"]
             phis = self.data[name][event_id]["phi"]
+            energies = self.data[name][event_id]["energy"]
             nhits = len(etas)
             event_hist = np.empty((nhits, bins))
 
             for ihit in range(nhits):
                 dRs = self.delta_r(etas[ihit], phis[ihit], etas, phis)
-                event_hist[ihit], bin_edges = np.histogram(dRs, bins=bins, range=dR_range)
+                event_hist[ihit], bin_edges = np.histogram(dRs, bins=bins, range=dR_range, weights=energies) if use_energy else np.histogram(dRs, bins=bins, range=dR_range)
 
             histograms[name] = (np.mean(event_hist, axis=0), bin_edges)
 
+        ylabel_base = "Average energy [GeV]" if use_energy else "Average # of hits"
         outname = prefix + "_clustering.png" if prefix != "" else "clustering.png"
         outpath = self.output_dir / outname
-        plotting.maia_hist1d(histograms, outpath, r"$\Delta R$", "Average # of hits")
+        plotting.maia_hist1d(histograms, outpath, r"$\Delta R$", ylabel_base)
 
         if reference_key is not None:
             ratio_histograms = {name : (histograms[name][0] / histograms[reference_key][0], histograms[name][1]) for name in histograms if name != reference_key}
             outname = prefix + "_clustering_ratio.png" if prefix != "" else "clustering_ratio.png"
             outpath = self.output_dir / outname
-            plotting.maia_hist1d(ratio_histograms, outpath, r"$\Delta R$", "Average # of hits / Average # of hits (MC)", ybounds=(0.8, 1.2))
+            plotting.maia_hist1d(ratio_histograms, outpath, r"$\Delta R$", "{} / {} ({})".format(ylabel_base, ylabel_base, reference_key), ybounds=(0.8, 1.2))
 
 def compare_mc_vs_generated(mc_hits: Dict[str, np.ndarray],
                            gen_hits: Dict[str, np.ndarray],

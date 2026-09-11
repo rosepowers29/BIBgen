@@ -1,0 +1,25 @@
+universe = container
+container_image = /cvmfs/singularity.opensciencegrid.org/htc/pytorch:2.3.1-cuda11.8
+
+log = debug_generate_$(Cluster)_$(Process).log
+error = debug_generate_$(Cluster)_$(Process).err
+output = debug_generate_$(Cluster)_$(Process).out
+
+executable = run_generate_like.sh
+arguments = denoiser_$(tag).pth $(config) $(tag) $(schedule)
+
++JobDurationCategory = "Medium"
+
+request_cpus = 1
+request_memory = 1GB
+request_disk = 1GB
+
+# No GPU request on purpose, same rationale as submit_debug_train.sub: tiny data runs
+# instantly on CPU and this skips the GPU-slot wait. Uses the real run_generate_like.sh
+# unmodified and the real config/ transfer, exercising the exact same argument mapping
+# and file-transfer code path as submit_generate_like.sub.
+transfer_input_files = ../../src, generate_like.py, ../../config, debug_fixtures/test_sizes_large.csv, ../training/denoiser_$(tag).pth
+transfer_output_files = $(tag)_like.hdf5
+should_transfer_files = YES
+
+queue config,tag,schedule from debug_generate_experiments.txt
