@@ -1,0 +1,23 @@
+universe = container
+container_image = /cvmfs/singularity.opensciencegrid.org/htc/pytorch:2.3.1-cuda11.8
+
+log = debug_variance_chain_$(Cluster)_$(Process).log
+error = debug_variance_chain_$(Cluster)_$(Process).err
+output = debug_variance_chain_$(Cluster)_$(Process).out
+
+executable = run_generate_like_verbose.sh
+
++JobDurationCategory = "Medium"
+
+request_cpus = 1
+request_memory = 2GB
+request_disk = 2GB
+
+# No GPU: CPU is plenty for a couple of diagnostic events, and this avoids the
+# thread-oversubscription/contention issue we hit running things directly on the
+# shared access point earlier.
+transfer_input_files = ../../src, generate_like.py, ../../config, test_sizes_debug.csv, ../training/denoiser_cosine_predvar.pth
+transfer_output_files = cosine_predvar_chaindebug_like.hdf5
+should_transfer_files = YES
+
+queue 1
