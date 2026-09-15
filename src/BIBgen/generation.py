@@ -7,7 +7,8 @@ def generate_sphered(
     device : torch.device,
     schedule : torch.Tensor | None = None,
     demo : bool = False,
-    verbosity : int = 0
+    verbosity : int = 0,
+    clamp_value : float | None = None
 ):
     """
     Run the denoising procedure on white noise.
@@ -28,6 +29,10 @@ def generate_sphered(
         While denoising, whether to sample from N(mu, std) or just choose mu. Note setting the latter often risks collapse of the distribution.
     verbosity : bool
         Print diagnostics for white noise and step wise results
+    clamp_value : float | None
+        If provided, clip current_event to [-clamp_value, clamp_value] (whitened units) after
+        each reverse step. Guards against rare stochastic excursions compounding uncontrolled
+        over the remaining steps; None (default) disables clamping entirely.
 
     Returns
     -------
@@ -45,6 +50,9 @@ def generate_sphered(
     current_event = torch.normal(mean=0, std=1, size=(n_members, 4), device=device)
     if verbosity >= 1:
         print("White noise:", current_event[:10])
+
+    total_clamped = 0
+    n_steps_clamped = 0
 
     with torch.inference_mode():
         for tau in torch.arange(model.n_timesteps-1, -1, -1, device=device):
@@ -65,6 +73,14 @@ def generate_sphered(
 
             current_event = torch.normal(mean=mu, std=torch.sqrt(var)) if not demo else mu
 
+            if clamp_value is not None:
+                n_clamped = (current_event.abs() > clamp_value).sum().item()
+                if n_clamped > 0:
+                    print(f"Clamped {n_clamped} values at tau {tau} (|x| > {clamp_value})", flush=True)
+                    total_clamped += n_clamped
+                    n_steps_clamped += 1
+                current_event = torch.clamp(current_event, -clamp_value, clamp_value)
+
             if verbosity >= 2:
                 print("tau", tau,
                 "mu mean", mu.abs().mean().item(), "mu max", mu.abs().max().item(),
@@ -72,5 +88,9 @@ def generate_sphered(
                 "x max", current_event.abs().max().item(),
                 "x mean", current_event.abs().mean().item(),
                 flush=True)
+
+    if clamp_value is not None and total_clamped > 0:
+        print(f"Event summary: clamped {total_clamped} values across {n_steps_clamped}/{model.n_timesteps} "
+              f"timesteps (|x| > {clamp_value})", flush=True)
 
     return current_event
