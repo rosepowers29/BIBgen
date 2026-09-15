@@ -31,7 +31,7 @@ def main(args):
     sizes = sizes.astype(int)
 
     model = load_empty_model(model_config_path, len(schedule)).to(device)
-    model.load_state_dict(torch.load(model_path, weights_only=True))
+    model.load_state_dict(torch.load(model_path, weights_only=True, map_location=device))
 
     gen_schedule = None if model.predict_variances else schedule
 
