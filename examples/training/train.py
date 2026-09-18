@@ -5,7 +5,7 @@ import h5py
 import torch
 import numpy as np
 
-from BIBgen.losses import GaussianNLLLoss, DecoupledGaussianNLLLoss
+from BIBgen.losses import GaussianNLLLoss, DecoupledGaussianNLLLoss, NELBOLoss
 from BIBgen.training import BatchedDataLoader, train, evaluate, load_empty_model
 from BIBgen import models
 
@@ -33,12 +33,15 @@ def main(args):
 
     model = load_empty_model(model_config_path, len(schedule)).to(device)
 
-    if model.predict_variances:
+    if args.loss == "nelbo":
+        nelbo = NELBOLoss(schedule, variance_loss_weight=args.variance_loss_weight if model.predict_variances else None)
+        loss_fn = lambda pred, X, y, tau, x_0: nelbo(pred, X, tau, x_0)
+    elif model.predict_variances:
         gaussian_nll = DecoupledGaussianNLLLoss(variance_loss_weight=args.variance_loss_weight)
-        loss_fn = lambda pred, y, tau: gaussian_nll(pred[0], pred[1], y)
+        loss_fn = lambda pred, X, y, tau, x_0: gaussian_nll(pred[0], pred[1], y)
     else:
         gaussian_nll = GaussianNLLLoss()
-        loss_fn = lambda pred, y, tau: gaussian_nll(pred, schedule[tau], y)
+        loss_fn = lambda pred, X, y, tau, x_0: gaussian_nll(pred, schedule[tau], y)
 
     optimizer = torch.optim.AdamW(model.parameters(), lr=1e-4, weight_decay=1e-2)
 
@@ -71,6 +74,7 @@ if __name__ == "__main__":
     parser.add_argument("model_config", help="json file specifying model name and hyperparameters")
     parser.add_argument("-e", "--epochs", type=int, help="Number of epochs to train")
     parser.add_argument("-b", "--batch-size", type=int, help="Batch size")
+    parser.add_argument("--loss", choices=["simple", "nelbo"], default="simple", help="'simple': direct NLL regression against each observed x_tau (current default). 'nelbo': KL against the true forward-process posterior (Ho et al. 2020), falling back to the same NLL reconstruction term only at tau=0")
     parser.add_argument("--variance-loss-weight", type=float, default=1.0, help="Weight on the variance-training loss term (only used when predict_variances=True)")
     parser.add_argument("-o", "--out", default=None, help="Output .pth path (default: denoiser_<tag>.pth)")
     parser.add_argument("-t", "--tag", default=None, help="Experiment tag for naming outputs (default: config filename stem)")

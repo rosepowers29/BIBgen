@@ -61,6 +61,10 @@ class UnbatchedDataLoader(BaseDataLoader):
             Event at diffusion timestep tau+1
         tau : torch.Tensor
             Event at diffusion timestep tau
+        tau_idx : torch.Tensor
+            Diffusion timestep index tau
+        x_0 : torch.Tensor
+            Clean (tau=0) event, for losses that need the true forward-process posterior (e.g. NELBOLoss)
         """
         if self.idx >= self.nsteps:
             self.shuffle_order = torch.randperm(self.nsteps) if self.shuffle else torch.arange(self.nsteps)
@@ -71,7 +75,8 @@ class UnbatchedDataLoader(BaseDataLoader):
         self.idx += 1
 
         event = self.infile[self.key + "/" + self.event_ids[event_no]]
-        return torch.from_numpy(event[tau+1]).to(dtype=torch.float32), torch.from_numpy(event[tau]).to(dtype=torch.float32), tau
+        x_0 = torch.from_numpy(event[0]).to(dtype=torch.float32)
+        return torch.from_numpy(event[tau+1]).to(dtype=torch.float32), torch.from_numpy(event[tau]).to(dtype=torch.float32), tau, x_0
 
 class BatchedDataLoader(BaseDataLoader):
     def __init__(self,
@@ -136,8 +141,8 @@ class BatchedDataLoader(BaseDataLoader):
         self.idx += 1
 
         event = self.infile[self.key + "/" + event_id][:]
-        return torch.from_numpy(event[batch_taus + 1]).to(dtype=torch.float32), torch.from_numpy(event[batch_taus]).to(dtype=torch.float32), batch_taus
-        # return event[batch_taus + 1].to(dtype=torch.float32), event[batch_taus].to(dtype=torch.float32), batch_taus
+        x_0 = torch.from_numpy(event[0]).to(dtype=torch.float32)
+        return torch.from_numpy(event[batch_taus + 1]).to(dtype=torch.float32), torch.from_numpy(event[batch_taus]).to(dtype=torch.float32), batch_taus, x_0
 
 def log_per_layer_grads(model):
     for name, p in model.named_parameters():
@@ -163,7 +168,7 @@ def train(
     model : torch.nn.Module
         Denoising model
     loss_fn : Callable
-        loss function to be called directly on model output, i.e. loss_fn(pred, y, tau) instead of loss_fn(mu, std, y)
+        loss function to be called directly on model output, i.e. loss_fn(pred, X, y, tau, x_0) instead of loss_fn(mu, std, y)
     optimizer : torch.optim.Optimizer
         Optimizer for gradient descent
     device : torch.device
@@ -180,17 +185,17 @@ def train(
     model.train()
     grad_norm = None
     for istep in range(dataloader.nsteps):
-        X, y, tau = next(dataloader)
-        X, y, tau = X.to(device), y.to(device), tau.to(device)
+        X, y, tau, x_0 = next(dataloader)
+        X, y, tau, x_0 = X.to(device), y.to(device), tau.to(device), x_0.to(device)
 
         # Compute prediction error
         if scaler is not None:
             with torch.autocast(device_type='cuda', dtype=torch.float16):
                 pred = model(X, tau)
-                loss = loss_fn(pred, y, tau)
+                loss = loss_fn(pred, X, y, tau, x_0)
         else:
             pred = model(X, tau)
-            loss = loss_fn(pred, y, tau)
+            loss = loss_fn(pred, X, y, tau, x_0)
 
         # Backpropagation
         try:
@@ -225,7 +230,7 @@ def evaluate(dataloader : BaseDataLoader, model : torch.nn.Module, loss_fn : Cal
     model : torch.nn.Module
         Denoising model
     loss_fn : Callable
-        loss function to be called directly on model output, i.e. loss_fn(pred, y, tau) instead of loss_fn(mu, std, y)
+        loss function to be called directly on model output, i.e. loss_fn(pred, X, y, tau, x_0) instead of loss_fn(mu, std, y)
     device : torch.device
         device on which to perform, usually torch.device("cuda") or torch.device("cpu")
 
@@ -239,10 +244,10 @@ def evaluate(dataloader : BaseDataLoader, model : torch.nn.Module, loss_fn : Cal
     test_loss = 0
     with torch.no_grad():
         for istep in range(dataloader.nsteps):
-            X, y, tau = next(dataloader)
-            X, y, tau = X.to(device), y.to(device), tau.to(device)
+            X, y, tau, x_0 = next(dataloader)
+            X, y, tau, x_0 = X.to(device), y.to(device), tau.to(device), x_0.to(device)
             pred = model(X, tau)
-            test_loss += loss_fn(pred, y, tau).item()
+            test_loss += loss_fn(pred, X, y, tau, x_0).item()
 
             if not np.isfinite(test_loss):
                 print("test_loss:", test_loss)

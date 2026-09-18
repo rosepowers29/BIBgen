@@ -38,6 +38,18 @@ def test_diffuse():
     assert np.all(result[0] == data)
     assert np.mean(result[-1], axis=0) == pytest.approx(np.zeros(5), abs=0.15)
 
+def test_cumulative_alpha_bar():
+    betas = np.array([0.1, 0.2, 0.3])
+
+    alpha_bar = cumulative_alpha_bar(betas)
+
+    assert alpha_bar.shape == (4,)
+    assert alpha_bar[0] == pytest.approx(1.0)
+    assert alpha_bar[1] == pytest.approx(0.9)
+    assert alpha_bar[2] == pytest.approx(0.9 * 0.8)
+    assert alpha_bar[3] == pytest.approx(0.9 * 0.8 * 0.7)
+    assert alpha_bar[-1] == pytest.approx(np.prod(1 - betas))
+
 def test_quadratic_beta_schedule_matches_baseline():
     schedule = quadratic_beta_schedule(100, scale=3e-5)
     baseline = np.loadtxt(Path(__file__).parent.parent / "config" / "noise_schedule.csv")

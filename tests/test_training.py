@@ -25,12 +25,13 @@ def test_UnbatchedDataLoader():
 
     with h5py.File(dummy_fname, "r") as fin:
         dataloader = UnbatchedDataLoader(fin, "training")
-        
+
         for epoch in range(5):
             instances = np.zeros(10)
             for istep in range(dataloader.nsteps):
-                x, y, tau = next(dataloader)
+                x, y, tau, x_0 = next(dataloader)
                 assert x == pytest.approx(y + 1)
+                assert x_0 == pytest.approx(np.zeros((10, 4)))
                 instances[tau] += 1
             assert np.all(instances == 2)
 
@@ -41,12 +42,13 @@ def test_BatchedDataLoader():
 
     with h5py.File(dummy_fname, "r") as fin:
         dataloader = BatchedDataLoader(fin, "training", batch_size=2)
-        
+
         for epoch in range(5):
             instances = np.zeros(10)
             for istep in range(dataloader.nsteps):
-                x, y, tau = next(dataloader)
+                x, y, tau, x_0 = next(dataloader)
                 assert x == pytest.approx(y + 1)
+                assert x_0 == pytest.approx(np.zeros((10, 4)))
                 instances[tau] += 1
             assert np.all(instances == 4)
 
@@ -67,7 +69,7 @@ def test_train():
         optimizer = torch.optim.SGD(model.parameters(), lr=1e-7)
 
         gaussian_nll = GaussianNLLLoss()
-        loss_fn = lambda pred, y, tau: gaussian_nll(pred, schedule[tau], y)
+        loss_fn = lambda pred, X, y, tau, x_0: gaussian_nll(pred, schedule[tau], y)
         with h5py.File(dummy_fname, "r") as fin:
             dataloader = dl_class(fin, "training", **kwargs)
 
@@ -89,7 +91,7 @@ def test_evaluate():
         ).to(device)
 
         gaussian_nll = GaussianNLLLoss()
-        loss_fn = lambda pred, y, tau: gaussian_nll(pred, schedule[tau], y)
+        loss_fn = lambda pred, X, y, tau, x_0: gaussian_nll(pred, schedule[tau], y)
         with h5py.File(dummy_fname, "r") as fin:
             dataloader = dl_class(fin, "training", **kwargs)
 

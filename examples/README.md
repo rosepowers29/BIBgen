@@ -81,13 +81,27 @@ weights the variance-training term relative to the mean-training term.
 python train.py [diffused_data] [noise_schedule] [model_config] -e [epochs] -b [batch_size] -t [tag]
 ```
 
+``--loss`` selects the training objective:
+
+- ``simple`` (default): direct NLL regression of the model's prediction against the one observed
+  ``x_τ`` from that event's specific forward-diffusion sample, using ``β_τ`` (or the model's own
+  learned variance, if ``predict_variances``) as the Gaussian's variance.
+- ``nelbo``: the actual negative ELBO (Ho et al. 2020) — for ``τ ≥ 1``, KL-divergence between the
+  model's predicted reverse distribution and the *true* forward-process posterior
+  ``q(x_τ|x_{τ+1},x_0)`` (a closed form depending on the clean sample ``x_0``, not just the one
+  noisy draw); at ``τ = 0`` this degenerates to the same reconstruction term ``simple`` already
+  uses. See ``NELBOLoss`` in ``losses.py`` for the full derivation. Applies the same
+  ``--variance-loss-weight`` decoupling as ``simple`` when ``predict_variances`` is ``true``.
+
 ``-t/--tag`` names the output files for this run (``denoiser_<tag>.pth``, ``history_<tag>.csv``);
 defaults to the config filename stem if omitted. ``-o/--out`` overrides the output path directly.
 
-``submit_train.sub`` reads ``(data, config, tag, schedule)`` rows from ``experiments.txt`` and
-queues one condor job per row, so multiple runs (including runs against different noise
-schedules) can be submitted at once without output files clobbering each other. ``schedule`` is
-a filename within ``config/`` (e.g. ``noise_schedule.csv`` or ``noise_schedule_cosine.csv``) —
+``submit_train.sub`` reads ``(data, config, tag, schedule, loss)`` rows from ``experiments.txt``
+and queues one condor job per row, so multiple runs (including runs against different noise
+schedules or loss functions) can be submitted at once without output files clobbering each
+other. ``loss`` is passed straight through as ``--loss`` (``simple`` or ``nelbo``); every row
+must specify it explicitly now that the field exists. ``schedule`` is a filename within
+``config/`` (e.g. ``noise_schedule.csv`` or ``noise_schedule_cosine.csv``) —
 the whole ``config/`` directory is already transferred to the job, so no other change is needed
 to use a new schedule.
 

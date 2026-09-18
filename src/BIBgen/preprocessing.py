@@ -170,6 +170,26 @@ def diffuse(features : ArrayLike, betas : Sequence) -> ArrayLike:
 
     return result
 
+def cumulative_alpha_bar(betas : Sequence) -> np.ndarray:
+    r"""
+    Cumulative signal-retention $\bar\alpha_\tau = \prod_{s=0}^{\tau-1}(1-\beta_s)$ for
+    $\tau = 0 \dots T$, so that $x_\tau = \sqrt{\bar\alpha_\tau} x_0 + \sqrt{1-\bar\alpha_\tau}\,\epsilon$
+    for $\epsilon \sim \mathcal{N}(0, I)$, consistent with `diffuse`'s step-by-step process.
+
+    Parameters
+    ----------
+    betas : typing.Sequence
+        Noise schedule with dimensions `(n_timesteps,)`, as in `diffuse`.
+
+    Returns
+    -------
+    alpha_bar : numpy.ndarray
+        Array of shape `(n_timesteps + 1,)` with $\bar\alpha_\tau$ for $\tau = 0 \dots T$.
+        `alpha_bar[0] == 1` (no noise yet) and `alpha_bar[-1]` matches the total signal
+        retained by the final timestep (i.e. `np.prod(1 - betas)`).
+    """
+    return np.concatenate([[1.0], np.cumprod(1 - np.asarray(betas))])
+
 def quadratic_beta_schedule(n_timesteps : int, scale : float = 3e-5) -> np.ndarray:
     r"""
     Quadratic noise schedule: $\beta_\tau = \text{scale} \cdot \tau^2$ for $\tau = 1 \dots T$.
