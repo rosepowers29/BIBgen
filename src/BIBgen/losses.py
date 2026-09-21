@@ -132,8 +132,9 @@ class NELBOLoss(nn.Module):
         """
         super().__init__()
         betas = torch.as_tensor(betas, dtype=torch.float32)
+        one = torch.ones(1, dtype=betas.dtype, device=betas.device)
         self.register_buffer("betas", betas)
-        self.register_buffer("alpha_bar", torch.cat([torch.ones(1), torch.cumprod(1 - betas, dim=0)]))
+        self.register_buffer("alpha_bar", torch.cat([one, torch.cumprod(1 - betas, dim=0)]))
         self.eps = eps
         self.variance_loss_weight = variance_loss_weight
 
