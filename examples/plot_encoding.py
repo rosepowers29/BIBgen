@@ -13,19 +13,28 @@ def main(args):
 
     weights = torch.load(model_path, weights_only=True, map_location=torch.device('cpu'))
 
-    omega_phi = weights["pos1_encoding.frequency_table"]
-    omega_s = weights["pos2_encoding.frequency_table"]
-    omega_z = weights["pos3_encoding.frequency_table"]
+    if "pos_encoding.frequency_table" in weights:
+        # Joint "gaussian" encoding: a single (m, 3) matrix, one column per axis (phi, s, z).
+        omega_phi, omega_s, omega_z = weights["pos_encoding.frequency_table"].T
+    else:
+        # Per-axis "learned" or "positional" encoding: one (1, m) row per axis.
+        omega_phi = weights["pos1_encoding.frequency_table"]
+        omega_s = weights["pos2_encoding.frequency_table"]
+        omega_z = weights["pos3_encoding.frequency_table"]
+
+    # Gaussian-sampled frequencies can be negative; sign is just a phase flip, so
+    # take the magnitude before converting to a (necessarily positive) period.
+    omega_phi, omega_s, omega_z = np.abs(omega_phi), np.abs(omega_s), np.abs(omega_z)
 
     with h5py.File(raw_path, "r") as fin:
         _, phi_std, s_std, z_std = np.array(fin["transformation/std"])
-    
+
     T_phi = phi_std * 2*np.pi / omega_phi
     T_s = s_std * 2*np.pi / omega_s
     T_z = z_std * 2*np.pi / omega_z
 
     fig, axes = plt.subplots(3, figsize=(6, 3), constrained_layout=True)
-    fig.suptitle('Periods of learned Fourier encoding', fontweight='bold')
+    fig.suptitle('Periods of Fourier encoding', fontweight='bold')
 
     alpha = 0.3
     axes[0].scatter(T_phi, np.zeros_like(T_phi), alpha=alpha)

@@ -59,7 +59,33 @@ Model architecture is specified via a JSON config, e.g. ``config/equivariant_den
 ```
 
 ``use_position_encoding`` defaults to ``false`` — hit coordinates (φ, s, z) are fed to the model
-directly rather than through an additional learned Fourier encoding.
+directly rather than through an additional Fourier encoding.
+
+When ``use_position_encoding`` is ``true``, ``position_encoding_kind`` selects the mapping
+(following Tancik et al., "Fourier Features Let Networks Learn High Frequency Functions in Low
+Dimensional Domains"):
+
+- ``"learned"`` (default) — the original per-axis encoding, with frequencies trained by gradient
+  descent alongside the rest of the network (``FourierEncoding`` in ``models/common.py``, one
+  independent encoder each for φ, s, z). Kept as a baseline; the paper (Appendix A.3) finds
+  gradient descent does not meaningfully move — or improve on — well-scaled fixed frequencies.
+- ``"positional"`` — fixed, deterministic, log-linearly spaced frequencies per axis
+  (``PositionalEncoding``), axis-aligned by construction (the paper's "positional encoding").
+- ``"gaussian"`` — fixed random frequencies sampled once from a Gaussian and shared across a
+  *single joint* encoder over (φ, s, z) (``GaussianFourierFeatures``), rather than three
+  independent per-axis encoders. This mixes coordinates the way the paper's random Fourier
+  feature mapping does, and the paper finds it outperforms axis-aligned positional encoding,
+  especially off-axis (Appendix A.5).
+
+``"positional"`` and ``"gaussian"`` both require ``position_encoding_scale``: either a single
+float shared across φ, s, z, or a ``[sigma_phi, sigma_s, sigma_z]`` triple. **This codebase starts
+with independent per-axis scales** rather than one shared scale, because φ is restricted to a
+narrow window (``--phi-window``, e.g. π/4) while s and z span the full detector — the "densely
+clustered" φ coordinate likely needs a different frequency scale than s/z. If the φ window is
+later widened toward the full detector extent, φ's frequency content may end up comparable to s/z,
+at which point collapsing back to one shared scale is worth revisiting.
+The best scale(s) are tuned per dataset on held-out validation loss; see
+``training/make_sweep_configs.py`` for generating a scale-sweep grid of configs.
 
 ``predict_variances`` defaults to ``false``. When ``true``, the model predicts its own per-hit,
 per-feature variance alongside the mean, turning the loss into a genuine Gaussian NLL rather than
@@ -104,6 +130,25 @@ must specify it explicitly now that the field exists. ``schedule`` is a filename
 ``config/`` (e.g. ``noise_schedule.csv`` or ``noise_schedule_cosine.csv``) —
 the whole ``config/`` directory is already transferred to the job, so no other change is needed
 to use a new schedule.
+
+### Fourier feature scale sweep
+
+``training/make_sweep_configs.py`` generates a grid of ``position_encoding_scale`` configs for
+the ``"positional"``/``"gaussian"`` encoders (see Model Configuration above), and appends matching
+rows to a manifest in the same format ``experiments.txt`` uses, so the grid submits through the
+existing ``submit_train.sub``/Condor workflow with no other changes:
+
+```bash
+python make_sweep_configs.py gaussian --phi 0.5 1 2 4 8 16 32 64 --s 1 --z 1 \
+    --data diffused_cyl_phipi4_large_logE.hdf5 --schedule noise_schedule.csv \
+    --manifest experiments_fourier_sweep.txt
+```
+
+Because a full 3-axis grid is combinatorially expensive, sweep one axis at a time (holding the
+other two fixed at a reasonable default), picking the best scale by validation loss before moving
+to the next axis — φ first (since it's the axis whose "densely clustered" window most likely
+needs a different scale than s/z), then s, then z — and only train the combined best-per-axis
+config to full length once all three are chosen.
 
 ## Generation
 

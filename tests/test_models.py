@@ -30,6 +30,82 @@ def test_FourierEncoding_batched():
     expected_result = torch.stack([fourier_encoding(event) for event in x])
     assert result.detach().numpy() == pytest.approx(expected_result.detach().numpy(), abs=1e-6)
 
+def test_PositionalEncoding():
+    scale = 8.0
+    dimension = 16
+    half_dimension = dimension // 2
+    encoding = PositionalEncoding(dimension, scale=scale)
+
+    assert not isinstance(encoding.frequency_table, torch.nn.Parameter)
+    assert list(encoding.parameters()) == []
+
+    powers = torch.arange(half_dimension, dtype=torch.float32) / half_dimension
+    expected_frequencies = 2 * torch.pi * scale ** powers
+    assert encoding.frequency_table.squeeze(0).numpy() == pytest.approx(expected_frequencies.numpy(), abs=1e-6)
+
+    x = torch.rand(64)
+    result = encoding(x)
+
+    thetas = torch.outer(x, expected_frequencies)
+    expected_result = torch.cat((torch.sin(thetas), torch.cos(thetas)), dim=1)
+
+    assert result.size() == torch.Size([64, 16])
+    assert result.numpy() == pytest.approx(expected_result.numpy(), abs=1e-6)
+
+def test_PositionalEncoding_batched():
+    encoding = PositionalEncoding(16, scale=4.0)
+
+    x = torch.rand(5, 64)
+    result = encoding(x)
+    assert result.size() == torch.Size([5, 64, 16])
+
+    expected_result = torch.stack([encoding(event) for event in x])
+    assert result.numpy() == pytest.approx(expected_result.numpy(), abs=1e-6)
+
+def test_PositionalEncoding_requires_even_dimension():
+    with pytest.raises(ValueError):
+        PositionalEncoding(15, scale=4.0)
+
+def test_GaussianFourierFeatures():
+    dimension = 32
+    half_dimension = dimension // 2
+    scales = (2.0, 4.0, 8.0)
+    encoding = GaussianFourierFeatures(dimension, input_dim=3, scales=scales, seed=0)
+
+    assert not isinstance(encoding.frequency_table, torch.nn.Parameter)
+    assert list(encoding.parameters()) == []
+    assert encoding.frequency_table.size() == torch.Size([half_dimension, 3])
+
+    x = torch.rand(64, 3)
+    result = encoding(x)
+    assert result.size() == torch.Size([64, dimension])
+
+    thetas = x @ encoding.frequency_table.T
+    expected_result = torch.cat((torch.sin(thetas), torch.cos(thetas)), dim=-1)
+    assert result.numpy() == pytest.approx(expected_result.numpy(), abs=1e-6)
+
+    empirical_std = encoding.frequency_table.std(dim=0) / (2 * torch.pi)
+    assert empirical_std.numpy() == pytest.approx(np.array(scales), rel=0.5)
+
+def test_GaussianFourierFeatures_scalar_scale_broadcasts():
+    encoding = GaussianFourierFeatures(16, input_dim=3, scales=4.0, seed=0)
+    assert encoding.frequency_table.size() == torch.Size([8, 3])
+
+def test_GaussianFourierFeatures_reproducible_with_seed():
+    a = GaussianFourierFeatures(16, input_dim=3, scales=4.0, seed=42)
+    b = GaussianFourierFeatures(16, input_dim=3, scales=4.0, seed=42)
+    assert a.frequency_table.numpy() == pytest.approx(b.frequency_table.numpy())
+
+def test_GaussianFourierFeatures_batched():
+    encoding = GaussianFourierFeatures(16, input_dim=3, scales=4.0, seed=0)
+
+    x = torch.rand(5, 64, 3)
+    result = encoding(x)
+    assert result.size() == torch.Size([5, 64, 16])
+
+    expected_result = torch.stack([encoding(event) for event in x])
+    assert result.numpy() == pytest.approx(expected_result.numpy(), abs=1e-6)
+
 def test_EquivariantLayer():
     layer = EquivariantLayer(4, 8)
 
@@ -101,6 +177,50 @@ def test_EquivariantDenoiser_predict_variances():
     assert mu.size() == torch.Size((24, 4))
     assert var.size() == torch.Size((24, 4))
     assert (var.detach() >= 0).all()
+
+@pytest.mark.parametrize("kind", ["learned", "positional", "gaussian"])
+def test_EquivariantDenoiser_position_encoding(kind):
+    model = EquivariantDenoiser(
+        n_timesteps = 25,
+        tau_encoding_dimension = 8,
+        position_encoding_dimension = 8,
+        hidden_layer_size = 32,
+        n_hidden_layers = 1,
+        use_position_encoding = True,
+        position_encoding_kind = kind,
+        position_encoding_scale = (1.0, 2.0, 4.0) if kind != "learned" else None,
+    )
+
+    tau = torch.tensor(12)
+    input_set = torch.rand((24, 4))
+    output_set = model(input_set, tau=tau)
+    assert output_set.size() == torch.Size((24, 4))
+
+    transpose_idx = torch.randperm(24)
+    transposed_output_set = model(input_set[transpose_idx], tau)
+    assert output_set[transpose_idx].detach().numpy() == pytest.approx(transposed_output_set.detach().numpy(), abs=1e-4)
+
+    output_set.sum().backward()
+    if kind == "learned":
+        assert model.pos1_encoding.frequency_table.grad is not None
+    elif kind == "positional":
+        assert not model.pos1_encoding.frequency_table.requires_grad
+        assert model.pos1_encoding.frequency_table.grad is None
+    elif kind == "gaussian":
+        assert not model.pos_encoding.frequency_table.requires_grad
+        assert model.pos_encoding.frequency_table.grad is None
+
+def test_EquivariantDenoiser_gaussian_encoding_requires_scale():
+    with pytest.raises(ValueError):
+        EquivariantDenoiser(
+            n_timesteps = 25,
+            tau_encoding_dimension = 8,
+            position_encoding_dimension = 8,
+            hidden_layer_size = 32,
+            n_hidden_layers = 1,
+            use_position_encoding = True,
+            position_encoding_kind = "gaussian",
+        )
 
 def test_EquivariantDenoiser_predict_variances_batched():
     model = EquivariantDenoiser(

@@ -1,4 +1,5 @@
 from collections import OrderedDict
+from typing import Sequence
 
 import torch
 from torch import nn
@@ -64,6 +65,16 @@ class EquivariantLayer(nn.Module):
         return self_term + interaction + self.bias_vec
 
 class EquivariantDenoiser(nn.Module):
+    @staticmethod
+    def _axis_scales(position_encoding_scale):
+        """Normalize position_encoding_scale into an explicit (sigma_phi, sigma_s, sigma_z) triple."""
+        if position_encoding_scale is None:
+            raise ValueError("position_encoding_scale is required for position_encoding_kind != 'learned'")
+        if isinstance(position_encoding_scale, (int, float)):
+            return (position_encoding_scale,) * 3
+        sigma_phi, sigma_s, sigma_z = position_encoding_scale
+        return (sigma_phi, sigma_s, sigma_z)
+
     def get_layer(self, insize, outsize, initialize_zero=False):
         if self.disable_interactions:
             return nn.Linear(insize, outsize)
@@ -79,6 +90,8 @@ class EquivariantDenoiser(nn.Module):
         predict_variances : bool = False,
         disable_interactions : bool = False,
         use_position_encoding : bool = False,   # default flipped
+        position_encoding_kind : str = "learned",
+        position_encoding_scale : float | Sequence[float] | None = None,
         log_frequency : bool = False,
     ):
         """
@@ -91,13 +104,35 @@ class EquivariantDenoiser(nn.Module):
         tau_encoding_dimension : int
             Number of dimensions to encode diffusion time
         position_encoding_dimension : int
-            Number of dimensions to encode each spatial dimention
+            Number of dimensions to encode each spatial dimention.
+            For `position_encoding_kind="gaussian"` this is the width of the single
+            joint (phi, s, z) encoder; for "learned"/"positional" it is the width of
+            each of the three independent per-axis encoders.
         hidden_layer_size : int
             Size of hidden equivariant layers in prediction tower
         n_hidden_layers : int
             Number of hidden layers in prediction towers
         nhits_normalization : int
             Number to divide the number of hits before it goes in as a feature
+        use_position_encoding : bool
+            Whether to feed a Fourier-encoded (phi, s, z) into the network in
+            addition to the raw coordinates.
+        position_encoding_kind : str
+            One of "learned" (default; gradient-trained frequencies via
+            `common.FourierEncoding`, applied independently per axis -- kept as a
+            baseline), "positional" (fixed, deterministic log-linear frequencies
+            via `common.PositionalEncoding`, applied independently per axis), or
+            "gaussian" (fixed random frequencies via `common.GaussianFourierFeatures`,
+            jointly mixing phi, s, z through a single encoder). Only used when
+            `use_position_encoding=True`.
+        position_encoding_scale : float or Sequence[float], optional
+            Frequency scale (sigma) for "positional"/"gaussian" kinds. A scalar is
+            shared across phi, s, z; a length-3 sequence gives independent
+            (sigma_phi, sigma_s, sigma_z). Required (and otherwise ignored) unless
+            `position_encoding_kind="learned"`.
+        log_frequency : bool
+            Only used when `position_encoding_kind="learned"`: reparametrize the
+            learned frequencies in log-space (see `common.FourierEncoding`).
         betas : torch.Tensor, optional
             Diffusion schedule with shape (n_timesteps,).
             Used to initiate the variance tower.
@@ -108,12 +143,26 @@ class EquivariantDenoiser(nn.Module):
         self.nhits_norm = nhits_normalization
         self.disable_interactions = disable_interactions
         self.use_position_encoding = use_position_encoding
+        self.position_encoding_kind = position_encoding_kind
 
         if self.use_position_encoding:
-            self.pos1_encoding = common.FourierEncoding(position_encoding_dimension, log_frequency=log_frequency)
-            self.pos2_encoding = common.FourierEncoding(position_encoding_dimension, log_frequency=log_frequency)
-            self.pos3_encoding = common.FourierEncoding(position_encoding_dimension, log_frequency=log_frequency)
-            pos_size = 3 * position_encoding_dimension
+            if position_encoding_kind == "learned":
+                self.pos1_encoding = common.FourierEncoding(position_encoding_dimension, log_frequency=log_frequency)
+                self.pos2_encoding = common.FourierEncoding(position_encoding_dimension, log_frequency=log_frequency)
+                self.pos3_encoding = common.FourierEncoding(position_encoding_dimension, log_frequency=log_frequency)
+                pos_size = 3 * position_encoding_dimension
+            elif position_encoding_kind == "positional":
+                sigma_phi, sigma_s, sigma_z = self._axis_scales(position_encoding_scale)
+                self.pos1_encoding = common.PositionalEncoding(position_encoding_dimension, scale=sigma_phi)
+                self.pos2_encoding = common.PositionalEncoding(position_encoding_dimension, scale=sigma_s)
+                self.pos3_encoding = common.PositionalEncoding(position_encoding_dimension, scale=sigma_z)
+                pos_size = 3 * position_encoding_dimension
+            elif position_encoding_kind == "gaussian":
+                axis_scales = self._axis_scales(position_encoding_scale)
+                self.pos_encoding = common.GaussianFourierFeatures(position_encoding_dimension, input_dim=3, scales=axis_scales)
+                pos_size = position_encoding_dimension
+            else:
+                raise ValueError(f"Unknown position_encoding_kind: {position_encoding_kind!r}")
         else:
             pos_size = 0
 
@@ -146,10 +195,13 @@ class EquivariantDenoiser(nn.Module):
 
         features = [tau_encoded, input_set[...,0:4], nhits_feature]
         if self.use_position_encoding:
-            pos1_encoded = self.pos1_encoding(input_set[...,1])
-            pos2_encoded = self.pos2_encoding(input_set[...,2])
-            pos3_encoded = self.pos3_encoding(input_set[...,3])
-            features += [pos1_encoded, pos2_encoded, pos3_encoded]
+            if self.position_encoding_kind == "gaussian":
+                features.append(self.pos_encoding(input_set[...,1:4]))
+            else:
+                pos1_encoded = self.pos1_encoding(input_set[...,1])
+                pos2_encoded = self.pos2_encoding(input_set[...,2])
+                pos3_encoded = self.pos3_encoding(input_set[...,3])
+                features += [pos1_encoded, pos2_encoded, pos3_encoded]
 
         encoded_set = torch.cat(features, axis=-1)
         out = self.prediction_tower(encoded_set)
