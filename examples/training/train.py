@@ -49,6 +49,7 @@ def main(args):
     print("Before training: Validation loss: {}".format(best_val_loss))
 
     history = [(-1, best_val_loss)]
+    saved_checkpoint = False
 
     for epoch in range(nepochs):
         train(training_loader, model, loss_fn, optimizer, device, max_steps_diagnostics=5 if epoch < 5 else 0)
@@ -62,7 +63,16 @@ def main(args):
             if val_loss < best_val_loss:
                 best_val_loss = val_loss
                 torch.save(model.state_dict(), out_path)
+                saved_checkpoint = True
                 print("Saving epoch {} to {}".format(epoch, out_path))
+
+    if not saved_checkpoint:
+        # Never beat the pre-training baseline (e.g. a short/exploratory run, or a
+        # deliberately poor hyperparameter choice being swept) -- still leave a
+        # checkpoint behind so downstream steps (e.g. Condor's transfer_output_files)
+        # have something to find, rather than failing on a missing file.
+        torch.save(model.state_dict(), out_path)
+        print("Validation loss never improved on the pre-training baseline; saving final epoch to {}".format(out_path))
 
     infile.close()
     return 0
