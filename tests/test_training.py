@@ -54,6 +54,47 @@ def test_BatchedDataLoader():
 
     os.remove(dummy_fname)
 
+class _CountingFile:
+    """Wraps an h5py.File and counts top-level __getitem__ calls, so tests can
+    check how many times raw event data was actually read off disk."""
+    def __init__(self, real):
+        self._real = real
+        self.event_read_calls = {}
+
+    def __getitem__(self, key):
+        self.event_read_calls[key] = self.event_read_calls.get(key, 0) + 1
+        return self._real[key]
+
+def test_BatchedDataLoader_caches_event_reads():
+    nevents, ntau, batch_size = 3, 10, 2
+    dummy_fname, _ = create_dummy_dataset(nevents, ntau, random=False)
+
+    with h5py.File(dummy_fname, "r") as fin:
+        counting_file = _CountingFile(fin)
+        dataloader = BatchedDataLoader(counting_file, "training", batch_size=batch_size)
+
+        event_paths = [f"training/evt_{i}" for i in range(nevents)]
+        # __init__ already reads each event once or twice (nhits lookup, plus an
+        # extra ntau lookup for event 0) -- capture that baseline rather than
+        # assuming a fixed count.
+        counts_after_init = {path: counting_file.event_read_calls.get(path, 0) for path in event_paths}
+        assert all(count >= 1 for count in counts_after_init.values())
+
+        for epoch in range(3):
+            for istep in range(dataloader.nsteps):
+                next(dataloader)
+
+        # Each event is visited nbatches(event_id) times per epoch (5 times/epoch
+        # here, x3 epochs = 15 visits total), but the cache is empty at __init__
+        # time, so __next__ should trigger exactly one more read per event (to
+        # populate the cache on first touch) regardless of epoch count -- every
+        # visit after that first one is served from the in-memory cache, not a
+        # fresh HDF5 read.
+        for path in event_paths:
+            assert counting_file.event_read_calls.get(path, 0) == counts_after_init[path] + 1
+
+    os.remove(dummy_fname)
+
 def test_train():
     dummy_fname, schedule = create_dummy_dataset(2, 10)
     device = torch.device("cpu")

@@ -115,6 +115,7 @@ class BatchedDataLoader(BaseDataLoader):
             self.nsteps += self.nbatches(event_id)
 
         self.idx = self.nsteps
+        self._event_cache = {}
 
     def nbatches(self, event_id):
         return self.ntau // self.batch_size_per_event[event_id]
@@ -140,7 +141,9 @@ class BatchedDataLoader(BaseDataLoader):
         batch_taus = self.batch_indices[event_id][batch_no]
         self.idx += 1
 
-        event = self.infile[self.key + "/" + event_id][:]
+        if event_id not in self._event_cache:
+            self._event_cache[event_id] = self.infile[self.key + "/" + event_id][:]
+        event = self._event_cache[event_id]
         x_0 = torch.from_numpy(event[0]).to(dtype=torch.float32)
         return torch.from_numpy(event[batch_taus + 1]).to(dtype=torch.float32), torch.from_numpy(event[batch_taus]).to(dtype=torch.float32), batch_taus, x_0
 
