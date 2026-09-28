@@ -210,6 +210,29 @@ def test_EquivariantDenoiser_position_encoding(kind):
         assert not model.pos_encoding.frequency_table.requires_grad
         assert model.pos_encoding.frequency_table.grad is None
 
+def _make_gaussian_model(seed):
+    return EquivariantDenoiser(
+        n_timesteps = 25,
+        tau_encoding_dimension = 8,
+        position_encoding_dimension = 8,
+        hidden_layer_size = 32,
+        n_hidden_layers = 1,
+        use_position_encoding = True,
+        position_encoding_kind = "gaussian",
+        position_encoding_scale = (1.0, 2.0, 4.0),
+        position_encoding_seed = seed,
+    )
+
+def test_EquivariantDenoiser_gaussian_encoding_seed_reproducible():
+    model_a = _make_gaussian_model(seed=7)
+    model_b = _make_gaussian_model(seed=7)
+    assert model_a.pos_encoding.frequency_table.numpy() == pytest.approx(model_b.pos_encoding.frequency_table.numpy())
+
+def test_EquivariantDenoiser_gaussian_encoding_no_seed_varies():
+    model_a = _make_gaussian_model(seed=None)
+    model_b = _make_gaussian_model(seed=None)
+    assert model_a.pos_encoding.frequency_table.numpy() != pytest.approx(model_b.pos_encoding.frequency_table.numpy())
+
 def test_EquivariantDenoiser_gaussian_encoding_requires_scale():
     with pytest.raises(ValueError):
         EquivariantDenoiser(

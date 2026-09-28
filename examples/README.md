@@ -87,6 +87,15 @@ at which point collapsing back to one shared scale is worth revisiting.
 The best scale(s) are tuned per dataset on held-out validation loss; see
 ``training/make_sweep_configs.py`` for generating a scale-sweep grid of configs.
 
+``"gaussian"`` additionally accepts ``position_encoding_seed`` (int, optional): seeds the random
+draw of the frequency matrix ``B`` (see ``GaussianFourierFeatures`` in ``models/common.py``) so
+it's reproducible across runs. Omitted by default, in which case every run draws an independent
+random ``B`` — fine when scale differences are large and clear, but when a sweep turns up two
+scales whose validation loss is nearly tied, that tie may just reflect which random ``B`` each one
+happened to draw rather than a real difference. Rerunning the tied candidates with a few different
+seeds each (see ``--seed`` on ``make_sweep_configs.py`` below) checks whether the ranking actually
+holds up. Ignored for ``"learned"``/``"positional"``, which have no randomness to seed.
+
 ``predict_variances`` defaults to ``false``. When ``true``, the model predicts its own per-hit,
 per-feature variance alongside the mean, turning the loss into a genuine Gaussian NLL rather than
 a ``β_τ``-weighted MSE (the fixed noise-schedule value is used as the variance when this is
@@ -142,6 +151,17 @@ existing ``submit_train.sub``/Condor workflow with no other changes:
 python make_sweep_configs.py gaussian --phi 0.5 1 2 4 8 16 32 64 --s 1 --z 1 \
     --data diffused_cyl_phipi4_large_logE.hdf5 --schedule noise_schedule.csv \
     --manifest experiments_fourier_sweep.txt
+```
+
+For ``gaussian``, ``--seed`` reruns each ``(phi, s, z)`` triple once per given seed (via
+``position_encoding_seed``) instead of a single uncontrolled draw — use this to check whether a
+close/tied result from a scale sweep actually holds up across different random frequency draws,
+e.g. rerunning just the tied candidates:
+
+```bash
+python make_sweep_configs.py gaussian --phi 4 --s 2 4 --z 1 --seed 0 1 2 \
+    --data diffused_cyl_phipi4_large_logE.hdf5 --schedule noise_schedule.csv \
+    --manifest experiments_fourier_sweep_phaseB_reseed.txt
 ```
 
 Because a full 3-axis grid is combinatorially expensive, sweep one axis at a time (holding the

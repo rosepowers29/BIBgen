@@ -92,6 +92,7 @@ class EquivariantDenoiser(nn.Module):
         use_position_encoding : bool = False,   # default flipped
         position_encoding_kind : str = "learned",
         position_encoding_scale : float | Sequence[float] | None = None,
+        position_encoding_seed : int | None = None,
         log_frequency : bool = False,
     ):
         """
@@ -130,6 +131,12 @@ class EquivariantDenoiser(nn.Module):
             shared across phi, s, z; a length-3 sequence gives independent
             (sigma_phi, sigma_s, sigma_z). Required (and otherwise ignored) unless
             `position_encoding_kind="learned"`.
+        position_encoding_seed : int, optional
+            Only used when `position_encoding_kind="gaussian"`: seeds the random
+            draw of the frequency matrix B (see `common.GaussianFourierFeatures`)
+            so it's reproducible across runs, instead of a fresh random draw every
+            time. Ignored for "learned"/"positional", which have no randomness to
+            seed.
         log_frequency : bool
             Only used when `position_encoding_kind="learned"`: reparametrize the
             learned frequencies in log-space (see `common.FourierEncoding`).
@@ -159,7 +166,7 @@ class EquivariantDenoiser(nn.Module):
                 pos_size = 3 * position_encoding_dimension
             elif position_encoding_kind == "gaussian":
                 axis_scales = self._axis_scales(position_encoding_scale)
-                self.pos_encoding = common.GaussianFourierFeatures(position_encoding_dimension, input_dim=3, scales=axis_scales)
+                self.pos_encoding = common.GaussianFourierFeatures(position_encoding_dimension, input_dim=3, scales=axis_scales, seed=position_encoding_seed)
                 pos_size = position_encoding_dimension
             else:
                 raise ValueError(f"Unknown position_encoding_kind: {position_encoding_kind!r}")
