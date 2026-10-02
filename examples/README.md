@@ -91,6 +91,43 @@ a filename within ``config/`` (e.g. ``noise_schedule.csv`` or ``noise_schedule_c
 the whole ``config/`` directory is already transferred to the job, so no other change is needed
 to use a new schedule.
 
+On Della (Slurm), ``./submit_train.sh experiments.txt`` is the equivalent: one ``train.slurm`` job
+per row. Run it as a program (``./submit_train.sh`` or ``bash submit_train.sh``), never with
+``source``, which would close your shell when the script exits. ``*.txt`` is gitignored, so each
+person keeps their own experiments file. A complete one looks like this:
+
+```
+REPO=/scratch/gpfs/<GROUP>/<netid>/BIBgen   # required: your checkout; outputs and logs go here
+MAIL_USER=<netid>@princeton.edu             # optional: email when each job ends or fails
+RUNTIME=12:00:00                            # optional: wall-time limit (default 12:00:00)
+DATA_DIR=/scratch/gpfs/IOJALVO/mz6011/BIBgen/data   # optional: default $REPO/data
+
+# data                                config                      tag       schedule
+# schedule must be the one `data` was diffused with
+diffused_cyl_phipi4_large_logE.hdf5   equivariant_denoiser.json   v1        noise_schedule.csv
+diffused_cyl_phipi4_large_logE.hdf5   mlp_denoiser.json           mlp_v1    noise_schedule.csv
+```
+
+Settings are ``KEY=value`` lines; anything else that is not a comment is a row, in the same
+``data config tag schedule`` order as the Condor files (commas also work). A bare ``data`` name is
+looked up in ``DATA_DIR``; a path is used as given. Pointing ``DATA_DIR`` at the shared copy above
+saves duplicating the 26 GB file. ``diffused_cyl_phipi4_large_logE.hdf5`` was diffused with
+``noise_schedule.csv``.
+
+```bash
+./submit_train.sh -n experiments.txt                     # print the sbatch commands only
+./submit_train.sh experiments.txt --test-only            # ask the scheduler, create no jobs
+./submit_train.sh experiments.txt                        # submit
+EPOCHS=51 ./submit_train.sh experiments.txt --time=04:00:00   # env knobs; extra sbatch options last
+squeue -u $USER --start                                  # estimated start times
+```
+
+The defaults in ``train.slurm`` (1 GPU on a 40 GB A100 or a 40 GB MIG slice, 2 cores, 4 GB, 12 h)
+are sized from a measured run: 151 epochs of ``equivariant_denoiser.json`` on the file above took
+8 h 57 min and used 1.3 cores, 1.6 GB of CPU memory and 6.3 GB of GPU memory. Scale ``RUNTIME`` with
+epochs, model size and dataset; a shorter limit never queues longer and sometimes much shorter.
+A tag whose ``denoiser_<tag>.pth`` already exists is skipped unless you pass ``-f``.
+
 ## Generation
 
 ```bash
@@ -101,6 +138,27 @@ Produces ``<tag>_like.hdf5``. Use the same ``-t`` you trained with. ``submit_gen
 fans this out the same way, reading ``(config, tag, schedule)`` rows from
 ``generate_experiments.txt``. ``schedule`` must be the same one the model with that ``tag`` was
 trained with.
+
+On Della, ``./submit_generate_like.sh generate_experiments.txt`` does the same on a MIG GPU. Its
+file takes the same ``REPO=`` (required), ``MAIL_USER=`` and ``RUNTIME=`` (default ``06:00:00``)
+settings, followed by ``config tag schedule`` rows:
+
+```
+REPO=/scratch/gpfs/<GROUP>/<netid>/BIBgen
+MAIL_USER=<netid>@princeton.edu
+
+# config                      tag       schedule (same as training)
+equivariant_denoiser.json     v1        noise_schedule.csv
+mlp_denoiser.json             mlp_v1    noise_schedule.csv
+```
+
+It reads ``$REPO/examples/training/denoiser_<tag>.pth`` and needs ``test_sizes_large.csv`` in
+``$REPO/examples/generation/`` (from ``write_test_sizes.py``; the diffused file has no ``test``
+group, so it must come from the matching raw file). To queue generation behind a training job:
+
+```bash
+./submit_generate_like.sh generate_experiments.txt --dependency=afterok:<train_jobid>
+```
 
 ## Analysis
 
