@@ -129,6 +129,28 @@ are sized from a measured run: 151 epochs of ``equivariant_denoiser.json`` on th
 epochs, model size and dataset; a shorter limit never queues longer and sometimes much shorter.
 A tag whose ``denoiser_<tag>.pth`` already exists is skipped unless you pass ``-f``.
 
+On Perlmutter (NERSC, also Slurm), ``./submit_train_perlmutter.sh experiments.txt`` is the
+equivalent: one ``train_perlmutter.slurm`` job per row. It takes the same ``data config tag
+schedule`` rows as above, plus one extra required setting:
+
+```
+REPO=$PSCRATCH/BIBgen                       # required: your checkout; outputs and logs go here
+ACCOUNT=mxyz                                # required: NERSC charge account (sbatch -A; see `iris -a`)
+MAIL_USER=<user>@princeton.edu              # optional: email when each job ends or fails
+RUNTIME=12:00:00                            # optional: wall-time limit (default 12:00:00)
+DATA_DIR=/path/to/shared/data               # optional: default $REPO/data
+```
+
+``train_perlmutter.slurm`` defaults to the ``shared`` QOS, which bills per-GPU rather than
+per-node (each Perlmutter GPU node has 4 A100s) -- the right choice for a single-GPU job like
+this one. Pass ``--qos=regular --nodes=N --ntasks=<N*4>`` (and edit the ``srun`` line) to spread
+a run across full nodes instead. Usage otherwise matches ``submit_train.sh``:
+
+```bash
+./submit_train_perlmutter.sh -n experiments.txt
+./submit_train_perlmutter.sh experiments.txt
+```
+
 ## Hyperparameter Optimization
 
 ```bash
@@ -185,6 +207,12 @@ group, so it must come from the matching raw file). To queue generation behind a
 ```bash
 ./submit_generate_like.sh generate_experiments.txt --dependency=afterok:<train_jobid>
 ```
+
+On Perlmutter, ``./submit_generate_like_perlmutter.sh generate_experiments.txt`` is the
+equivalent, submitting ``generate_like_perlmutter.slurm`` jobs on the ``shared`` QOS. It takes the
+same ``REPO=`` (required), ``ACCOUNT=`` (required, NERSC charge account), ``MAIL_USER=`` and
+``RUNTIME=`` (default ``06:00:00``) settings and ``config tag schedule`` rows as the Della version
+above.
 
 ## Analysis
 
