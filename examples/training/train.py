@@ -41,6 +41,7 @@ def main(args):
         loss_fn = lambda pred, y, tau: gaussian_nll(pred, schedule[tau], y)
 
     optimizer = torch.optim.AdamW(model.parameters(), lr=1e-4, weight_decay=1e-2)
+    scaler = torch.amp.GradScaler("cuda") if args.amp and device.type == "cuda" else None
 
     best_val_loss = evaluate(validation_loader, model, loss_fn, device)
     print("Before training: Validation loss: {}".format(best_val_loss))
@@ -48,7 +49,7 @@ def main(args):
     history = [(-1, best_val_loss)]
 
     for epoch in range(nepochs):
-        train(training_loader, model, loss_fn, optimizer, device, max_steps_diagnostics=5 if epoch < 5 else 0)
+        train(training_loader, model, loss_fn, optimizer, device, scaler=scaler, max_steps_diagnostics=5 if epoch < 5 else 0)
 
         if epoch < 10 or epoch % 5 == 0:
             val_loss = evaluate(validation_loader, model, loss_fn, device)
@@ -74,4 +75,5 @@ if __name__ == "__main__":
     parser.add_argument("--variance-loss-weight", type=float, default=1.0, help="Weight on the variance-training loss term (only used when predict_variances=True)")
     parser.add_argument("-o", "--out", default=None, help="Output .pth path (default: denoiser_<tag>.pth)")
     parser.add_argument("-t", "--tag", default=None, help="Experiment tag for naming outputs (default: config filename stem)")
+    parser.add_argument("--amp", action="store_true", help="Train under automatic mixed precision (torch.autocast + GradScaler) to reduce GPU memory use")
     print("\nFinished with exit code:", main(parser.parse_args()))
