@@ -15,9 +15,12 @@ def main(args):
     schedule_path = args.noise_schedule
     model_config_path = args.model_config
     batch_size = args.batch_size
+    hit_budget = args.hit_budget
     assert inpath.endswith(".hdf5")
     assert schedule_path.endswith(".csv")
     assert model_config_path.endswith(".json")
+    if (batch_size is None) == (hit_budget is None):
+        raise SystemExit("Specify exactly one of --batch-size or --hit-budget")
 
     tag = args.tag or os.path.splitext(os.path.basename(model_config_path))[0]
     out_path = args.out or f"denoiser_{tag}.pth"
@@ -27,8 +30,8 @@ def main(args):
     print(f"Using {device} device")
 
     infile = h5py.File(inpath, "r")
-    training_loader = BatchedDataLoader(infile, "training", batch_size=batch_size)
-    validation_loader = BatchedDataLoader(infile, "validation", batch_size=batch_size)
+    training_loader = BatchedDataLoader(infile, "training", batch_size=batch_size, hit_budget=hit_budget)
+    validation_loader = BatchedDataLoader(infile, "validation", batch_size=batch_size, hit_budget=hit_budget)
     schedule = torch.from_numpy(np.loadtxt(schedule_path)).to(device)
 
     model = load_empty_model(model_config_path, len(schedule)).to(device)
@@ -75,7 +78,8 @@ if __name__ == "__main__":
     parser.add_argument("noise_schedule", help="Noise schedule of forward diffusion process")
     parser.add_argument("model_config", help="json file specifying model name and hyperparameters")
     parser.add_argument("-e", "--epochs", type=int, help="Number of epochs to train")
-    parser.add_argument("-b", "--batch-size", type=int, help="Batch size")
+    parser.add_argument("-b", "--batch-size", type=int, help="Fixed batch size, the same for every event. Mutually exclusive with --hit-budget")
+    parser.add_argument("--hit-budget", type=int, help="Instead of a fixed batch size, cap each batch at roughly this many total hits (batch_size x n_hits), with batch_size chosen per-event as the largest divisor of the schedule's timestep count that fits. Use this when per-event hit counts vary enormously, so a single fixed --batch-size either OOMs on the largest events or wastes GPU utilization on the rest. Mutually exclusive with --batch-size")
     parser.add_argument("--variance-loss-weight", type=float, default=1.0, help="Weight on the variance-training loss term (only used when predict_variances=True)")
     parser.add_argument("-o", "--out", default=None, help="Output .pth path (default: denoiser_<tag>.pth)")
     parser.add_argument("-t", "--tag", default=None, help="Experiment tag for naming outputs (default: config filename stem)")

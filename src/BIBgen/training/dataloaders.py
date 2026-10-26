@@ -96,9 +96,9 @@ class BatchedDataLoader(BaseDataLoader):
             if batch_size is not None:
                 self.batch_size_per_event[event_id] = batch_size
             else:
-                possible_batch_sizes = self.ntau_factors * infile[self.key + "/" + event_id].shape[1]
-                valid_batch_sizes = possible_batch_sizes[possible_batch_sizes <= hit_budget]
-                self.batch_size_per_event[event_id] = 1 if valid_batch_sizes.shape[0] == 0 else valid_batch_sizes[-1]
+                possible_workloads = self.ntau_factors * infile[self.key + "/" + event_id].shape[1]
+                valid_factors = self.ntau_factors[possible_workloads <= hit_budget]
+                self.batch_size_per_event[event_id] = 1 if valid_factors.shape[0] == 0 else valid_factors[-1]
 
         self.nsteps = 0
         for event_id in self.batch_size_per_event:
