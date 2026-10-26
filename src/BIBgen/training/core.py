@@ -105,7 +105,18 @@ def train(
                 print("pred.size() : {}".format(pred.size()))
             raise RuntimeError("Intentional exit")
 
-    return loss.item()
+        last_loss = loss.item()
+
+        # Per-event hit counts vary enormously in this dataset (two orders of magnitude), so
+        # consecutive steps request wildly different tensor sizes. The caching allocator doesn't
+        # always reuse a block freed by a small event for a subsequent large event's allocation,
+        # letting reserved memory climb across steps; releasing it back explicitly keeps peak
+        # usage tied to the current step's event rather than the high-water mark of all steps so far.
+        del X, y, tau, pred, loss
+        if device.type == "cuda":
+            torch.cuda.empty_cache()
+
+    return last_loss
 
 def evaluate(
     dataloader : BaseDataLoader,
@@ -178,5 +189,12 @@ def evaluate(
                 print("y:", y)
                 print("pred:", pred)
                 raise RuntimeError("Nonfinite test loss")
+
+            # See the matching comment in train(): per-event hit counts vary by two orders of
+            # magnitude in this dataset, so release each step's tensors explicitly rather than
+            # letting the allocator's reserved memory climb across wildly different step sizes.
+            del X, y, tau, pred
+            if device.type == "cuda":
+                torch.cuda.empty_cache()
 
     return test_loss / dataloader.nsteps
