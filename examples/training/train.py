@@ -49,7 +49,11 @@ def main(args):
     history = [(-1, best_val_loss)]
 
     for epoch in range(nepochs):
-        train(training_loader, model, loss_fn, optimizer, device, scaler=scaler, max_steps_diagnostics=5 if epoch < 5 else 0)
+        train(
+            training_loader, model, loss_fn, optimizer, device,
+            scaler=scaler, accumulation_steps=args.accumulation_steps,
+            max_steps_diagnostics=5 if epoch < 5 else 0,
+        )
 
         if epoch < 10 or epoch % 5 == 0:
             val_loss = evaluate(validation_loader, model, loss_fn, device)
@@ -76,4 +80,5 @@ if __name__ == "__main__":
     parser.add_argument("-o", "--out", default=None, help="Output .pth path (default: denoiser_<tag>.pth)")
     parser.add_argument("-t", "--tag", default=None, help="Experiment tag for naming outputs (default: config filename stem)")
     parser.add_argument("--amp", action="store_true", help="Train under automatic mixed precision (torch.autocast + GradScaler) to reduce GPU memory use")
+    parser.add_argument("--accumulation-steps", type=int, default=1, help="Split each batch into this many micro-batches, accumulating gradients before each optimizer step, to reduce peak GPU memory use without changing batch size (must divide batch size evenly)")
     print("\nFinished with exit code:", main(parser.parse_args()))

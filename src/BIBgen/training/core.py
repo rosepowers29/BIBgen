@@ -17,6 +17,7 @@ def train(
     optimizer : torch.optim.Optimizer,
     device : torch.device,
     scaler : torch.amp.GradScaler | None = None,
+    accumulation_steps : int = 1,
     max_steps_diagnostics : int = 0
 ):
     """
@@ -34,13 +35,18 @@ def train(
         Optimizer for gradient descent
     device : torch.device
         device on which to perform, usually torch.device("cuda") or torch.device("cpu")
+    accumulation_steps : int
+        Split each dataloader batch into this many equal micro-batches, backpropagating
+        each separately and only stepping the optimizer once per full batch. Reduces peak
+        activation memory by this factor while keeping the effective batch size (and the
+        resulting gradient) unchanged. The dataloader's batch size must be divisible by it.
     max_steps_diagnostics : int
         Maximum number of steps to print diagnostics
 
     Returns
     -------
     loss : float
-        Training loss on the final iteration
+        Training loss on the final micro-batch of the final iteration
     """
     # assert scaler is not None or device.type != "cuda"
     model.train()
@@ -48,31 +54,49 @@ def train(
     for istep in range(dataloader.nsteps):
         X, y, tau = next(dataloader)
         X, y, tau = X.to(device), y.to(device), tau.to(device)
+
+        if accumulation_steps > 1 and X.shape[0] % accumulation_steps != 0:
+            raise ValueError("Batch size must be divisible by accumulation_steps")
+        micro_batch_size = X.shape[0] // accumulation_steps if accumulation_steps > 1 else None
+
         optimizer.zero_grad(set_to_none=True)
 
-        # Compute prediction error
-        if scaler is not None:
-            with torch.autocast(device_type='cuda', dtype=torch.float16):
-                pred = model(X, tau)
-                loss = loss_fn(pred, y, tau)
-        else:
-            pred = model(X, tau)
-            loss = loss_fn(pred, y, tau)
-
-        # Backpropagation
         try:
+            for micro_step in range(accumulation_steps):
+                if accumulation_steps == 1:
+                    # Unsliced: also correct for UnbatchedDataLoader, whose X/y/tau have no
+                    # leading batch dimension to slice (tau is a 0-dim scalar tensor there).
+                    X_sub, y_sub, tau_sub = X, y, tau
+                else:
+                    sl = slice(micro_step * micro_batch_size, (micro_step + 1) * micro_batch_size)
+                    X_sub, y_sub, tau_sub = X[sl], y[sl], tau[sl]
+
+                # Compute prediction error
+                if scaler is not None:
+                    with torch.autocast(device_type='cuda', dtype=torch.float16):
+                        pred = model(X_sub, tau_sub)
+                        loss = loss_fn(pred, y_sub, tau_sub)
+                else:
+                    pred = model(X_sub, tau_sub)
+                    loss = loss_fn(pred, y_sub, tau_sub)
+
+                # Backpropagation. Scaling by accumulation_steps makes the summed gradient
+                # across micro-batches match the gradient of the mean loss over the full batch.
+                if scaler is not None:
+                    scaler.scale(loss / accumulation_steps).backward()
+                else:
+                    (loss / accumulation_steps).backward()
+
             if scaler is not None:
-                scaler.scale(loss).backward()
                 scaler.step(optimizer)
                 scaler.update()
             else:
-                loss.backward()
                 if istep < max_steps_diagnostics:
                     log_per_layer_grads(model)
                 optimizer.step()
         except torch.cuda.OutOfMemoryError:
             print("Failed step {}, cuda out of memory".format(istep))
-            print("X.size() : {}, y.size() : {}".format(X.size(), y.size()))
+            print("X.size() : {}, y.size() : {}, accumulation_steps : {}".format(X.size(), y.size(), accumulation_steps))
             if isinstance(pred, tuple):
                 print("pred[0].size() (mu) : {}, pred[1].size() (var) : {}".format(pred[0].size(), pred[1].size()))
             else:
