@@ -43,7 +43,7 @@ def main(args):
     optimizer = torch.optim.AdamW(model.parameters(), lr=1e-4, weight_decay=1e-2)
     scaler = torch.amp.GradScaler("cuda") if args.amp and device.type == "cuda" else None
 
-    best_val_loss = evaluate(validation_loader, model, loss_fn, device)
+    best_val_loss = evaluate(validation_loader, model, loss_fn, device, use_amp=args.amp, accumulation_steps=args.accumulation_steps)
     print("Before training: Validation loss: {}".format(best_val_loss))
 
     history = [(-1, best_val_loss)]
@@ -56,7 +56,7 @@ def main(args):
         )
 
         if epoch < 10 or epoch % 5 == 0:
-            val_loss = evaluate(validation_loader, model, loss_fn, device)
+            val_loss = evaluate(validation_loader, model, loss_fn, device, use_amp=args.amp, accumulation_steps=args.accumulation_steps)
             print("Epoch {}: Validation loss: {}".format(epoch, val_loss))
             history.append((epoch, val_loss))
             np.savetxt(history_path, np.array(history), delimiter=",", header="epoch,val_loss", comments="")

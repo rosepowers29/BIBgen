@@ -80,12 +80,14 @@ def train(
                     pred = model(X_sub, tau_sub)
                     loss = loss_fn(pred, y_sub, tau_sub)
 
-                # Backpropagation. Scaling by accumulation_steps makes the summed gradient
-                # across micro-batches match the gradient of the mean loss over the full batch.
+                # loss_fn reduces with a sum over the batch dimension (see GaussianNLLLoss),
+                # not a mean -- so summing each micro-batch's backward (via repeated .backward()
+                # calls accumulating into .grad) exactly reproduces the full batch's gradient,
+                # with no rescaling needed.
                 if scaler is not None:
-                    scaler.scale(loss / accumulation_steps).backward()
+                    scaler.scale(loss).backward()
                 else:
-                    (loss / accumulation_steps).backward()
+                    loss.backward()
 
             if scaler is not None:
                 scaler.step(optimizer)
@@ -105,7 +107,14 @@ def train(
 
     return loss.item()
 
-def evaluate(dataloader : BaseDataLoader, model : torch.nn.Module, loss_fn : Callable, device : torch.device):
+def evaluate(
+    dataloader : BaseDataLoader,
+    model : torch.nn.Module,
+    loss_fn : Callable,
+    device : torch.device,
+    use_amp : bool = False,
+    accumulation_steps : int = 1,
+):
     """
     Parameters
     ----------
@@ -117,6 +126,13 @@ def evaluate(dataloader : BaseDataLoader, model : torch.nn.Module, loss_fn : Cal
         loss function to be called directly on model output, i.e. loss_fn(pred, y, tau) instead of loss_fn(mu, std, y)
     device : torch.device
         device on which to perform, usually torch.device("cuda") or torch.device("cpu")
+    use_amp : bool
+        Run the forward pass under torch.autocast(dtype=torch.float16) to reduce GPU memory use
+    accumulation_steps : int
+        Split each dataloader batch into this many equal micro-batches, evaluated one at a
+        time, to reduce peak activation memory. Purely a memory knob -- does not change the
+        returned loss (no gradients are computed here, so there is nothing to accumulate).
+        The dataloader's batch size must be divisible by it.
 
     Returns
     -------
@@ -130,8 +146,31 @@ def evaluate(dataloader : BaseDataLoader, model : torch.nn.Module, loss_fn : Cal
         for istep in range(dataloader.nsteps):
             X, y, tau = next(dataloader)
             X, y, tau = X.to(device), y.to(device), tau.to(device)
-            pred = model(X, tau)
-            test_loss += loss_fn(pred, y, tau).item()
+
+            if accumulation_steps > 1 and X.shape[0] % accumulation_steps != 0:
+                raise ValueError("Batch size must be divisible by accumulation_steps")
+            micro_batch_size = X.shape[0] // accumulation_steps if accumulation_steps > 1 else None
+
+            step_loss = 0.0
+            for micro_step in range(accumulation_steps):
+                if accumulation_steps == 1:
+                    X_sub, y_sub, tau_sub = X, y, tau
+                else:
+                    sl = slice(micro_step * micro_batch_size, (micro_step + 1) * micro_batch_size)
+                    X_sub, y_sub, tau_sub = X[sl], y[sl], tau[sl]
+
+                if use_amp:
+                    with torch.autocast(device_type='cuda', dtype=torch.float16):
+                        pred = model(X_sub, tau_sub)
+                        micro_loss = loss_fn(pred, y_sub, tau_sub)
+                else:
+                    pred = model(X_sub, tau_sub)
+                    micro_loss = loss_fn(pred, y_sub, tau_sub)
+                step_loss += micro_loss.item()
+
+            # loss_fn sums over the batch dimension (see GaussianNLLLoss), so summing each
+            # micro-batch's loss exactly reproduces the full batch's loss -- no rescaling needed.
+            test_loss += step_loss
 
             if not np.isfinite(test_loss):
                 print("test_loss:", test_loss)
