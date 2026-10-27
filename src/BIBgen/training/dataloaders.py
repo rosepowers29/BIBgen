@@ -144,4 +144,9 @@ class BatchedDataLoader(BaseDataLoader):
             self.cached_event = self.infile[self.key + "/" + event_id][:]
             self.cached_event_id = event_id
         event = self.cached_event
-        return torch.from_numpy(event[batch_taus + 1]).to(dtype=torch.float32), torch.from_numpy(event[batch_taus]).to(dtype=torch.float32), batch_taus
+        # event is a numpy array; numpy treats a single-element torch tensor index as a plain
+        # scalar (via __index__) rather than a length-1 array index, dropping the batch
+        # dimension when batch_size_per_event is 1. Converting to a numpy array first makes the
+        # indexing unambiguous regardless of batch size.
+        batch_taus_np = batch_taus.numpy()
+        return torch.from_numpy(event[batch_taus_np + 1]).to(dtype=torch.float32), torch.from_numpy(event[batch_taus_np]).to(dtype=torch.float32), batch_taus
