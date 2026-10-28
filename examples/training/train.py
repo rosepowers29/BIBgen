@@ -25,6 +25,7 @@ def main(args):
     tag = args.tag or os.path.splitext(os.path.basename(model_config_path))[0]
     out_path = args.out or f"denoiser_{tag}.pth"
     history_path = f"history_{tag}.csv"
+    checkpoint_path = f"checkpoint_{tag}.pth"
 
     device = torch.device("cuda") if torch.cuda.is_available() else torch.device("cpu")
     print(f"Using {device} device")
@@ -46,12 +47,36 @@ def main(args):
     optimizer = torch.optim.AdamW(model.parameters(), lr=args.lr, weight_decay=1e-2)
     scaler = torch.amp.GradScaler("cuda") if args.amp and device.type == "cuda" else None
 
-    best_val_loss = evaluate(validation_loader, model, loss_fn, device, use_amp=args.amp, accumulation_steps=args.accumulation_steps, log_every=args.log_every)
-    print("Before training: Validation loss: {}".format(best_val_loss))
+    start_epoch = 0
+    best_val_loss = None
+    history = None
 
-    history = [(-1, best_val_loss)]
+    if args.resume:
+        if os.path.exists(checkpoint_path):
+            # Trusted, locally-produced checkpoint (not an external/untrusted file), so the
+            # torch>=2.6 weights_only=True default -- which would reject the plain history list
+            # and non-tensor optimizer/scaler state below -- doesn't apply here.
+            checkpoint = torch.load(checkpoint_path, map_location=device, weights_only=False)
+            model.load_state_dict(checkpoint["model"])
+            optimizer.load_state_dict(checkpoint["optimizer"])
+            if scaler is not None and checkpoint.get("scaler") is not None:
+                scaler.load_state_dict(checkpoint["scaler"])
+            start_epoch = checkpoint["epoch"] + 1
+            best_val_loss = checkpoint["best_val_loss"]
+            history = checkpoint["history"]
+            print(f"Resumed from {checkpoint_path}: continuing at epoch {start_epoch} (best_val_loss={best_val_loss})")
+        else:
+            print(f"--resume given but {checkpoint_path} does not exist; starting fresh")
 
-    for epoch in range(nepochs):
+    if history is None:
+        best_val_loss = evaluate(validation_loader, model, loss_fn, device, use_amp=args.amp, accumulation_steps=args.accumulation_steps, log_every=args.log_every)
+        print("Before training: Validation loss: {}".format(best_val_loss))
+        history = [(-1, best_val_loss)]
+
+    if start_epoch >= nepochs:
+        print(f"Checkpoint already completed {start_epoch} of {nepochs} epochs; nothing to do")
+
+    for epoch in range(start_epoch, nepochs):
         train(
             training_loader, model, loss_fn, optimizer, device,
             scaler=scaler, accumulation_steps=args.accumulation_steps,
@@ -69,6 +94,19 @@ def main(args):
                 best_val_loss = val_loss
                 torch.save(model.state_dict(), out_path)
                 print("Saving epoch {} to {}".format(epoch, out_path))
+
+        # Full resumable training state, overwritten every epoch (regardless of whether this
+        # epoch ran validation) -- so a job killed by e.g. hitting its walltime loses at most
+        # one epoch's progress. Kept separate from out_path, which stays model-weights-only for
+        # downstream generation code that doesn't need to know about this format.
+        torch.save({
+            "model": model.state_dict(),
+            "optimizer": optimizer.state_dict(),
+            "scaler": scaler.state_dict() if scaler is not None else None,
+            "epoch": epoch,
+            "best_val_loss": best_val_loss,
+            "history": history,
+        }, checkpoint_path)
 
     infile.close()
     return 0
@@ -88,4 +126,5 @@ if __name__ == "__main__":
     parser.add_argument("--amp", action="store_true", help="Train under automatic mixed precision (torch.autocast + GradScaler) to reduce GPU memory use")
     parser.add_argument("--accumulation-steps", type=int, default=1, help="Split each batch into this many micro-batches, accumulating gradients before each optimizer step, to reduce peak GPU memory use without changing batch size (must divide batch size evenly)")
     parser.add_argument("--log-every", type=int, default=0, help="Print a one-line progress message (batch size, hit count) every this many steps, during both training and evaluation. 0 (default) disables it -- meant for watching a run live (e.g. an interactive node), not for long batch jobs where it would just bloat the log")
+    parser.add_argument("--resume", action="store_true", help="Resume from checkpoint_<tag>.pth (model, optimizer, scaler, epoch, and history) if it exists, continuing to -e/--epochs. If no checkpoint is found, starts fresh. Use this to continue a run that was killed (e.g. hit its walltime) without losing progress")
     print("\nFinished with exit code:", main(parser.parse_args()))
