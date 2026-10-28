@@ -162,15 +162,22 @@ def evaluate(
     Returns
     -------
     test_loss : float
-        Average loss over all validation events
+        Average per-sample loss over all validation events, comparable across runs regardless
+        of --batch-size/--hit-budget (loss_fn sums over the batch dimension, so this divides
+        by total samples rather than step/batch count to undo that)
     """
 
     model.eval()
     test_loss = 0
+    total_samples = 0
     with torch.no_grad():
         for istep in range(dataloader.nsteps):
             X, y, tau = next(dataloader)
             X, y, tau = X.to(device), y.to(device), tau.to(device)
+            # BatchedDataLoader batches carry an explicit leading batch dim; UnbatchedDataLoader
+            # yields one sample per step with no such dim (matching GaussianNLLLoss's own
+            # loss.dim() > 2 check for whether it has a batch dim to sum over).
+            total_samples += X.shape[0] if X.dim() > 2 else 1
 
             if log_every and istep % log_every == 0:
                 print(f"[eval] step {istep + 1}/{dataloader.nsteps}: batch_size={X.shape[0]}, nhits={X.shape[-2]}", flush=True)
@@ -214,4 +221,8 @@ def evaluate(
             if device.type == "cuda":
                 torch.cuda.empty_cache()
 
-    return test_loss / dataloader.nsteps
+    # Divide by samples, not steps/batches: loss_fn sums over the batch dimension, so dividing
+    # by step count (as opposed to total samples) would make this scale with whatever batch
+    # size happens to be in use -- not a true per-sample average comparable across runs that
+    # use different --batch-size/--hit-budget settings.
+    return test_loss / total_samples
