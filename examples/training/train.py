@@ -43,10 +43,10 @@ def main(args):
         gaussian_nll = GaussianNLLLoss()
         loss_fn = lambda pred, y, tau: gaussian_nll(pred, schedule[tau], y)
 
-    optimizer = torch.optim.AdamW(model.parameters(), lr=1e-4, weight_decay=1e-2)
+    optimizer = torch.optim.AdamW(model.parameters(), lr=args.lr, weight_decay=1e-2)
     scaler = torch.amp.GradScaler("cuda") if args.amp and device.type == "cuda" else None
 
-    best_val_loss = evaluate(validation_loader, model, loss_fn, device, use_amp=args.amp, accumulation_steps=args.accumulation_steps)
+    best_val_loss = evaluate(validation_loader, model, loss_fn, device, use_amp=args.amp, accumulation_steps=args.accumulation_steps, log_every=args.log_every)
     print("Before training: Validation loss: {}".format(best_val_loss))
 
     history = [(-1, best_val_loss)]
@@ -56,10 +56,11 @@ def main(args):
             training_loader, model, loss_fn, optimizer, device,
             scaler=scaler, accumulation_steps=args.accumulation_steps,
             max_steps_diagnostics=5 if epoch < 5 else 0,
+            log_every=args.log_every,
         )
 
         if epoch < 10 or epoch % 5 == 0:
-            val_loss = evaluate(validation_loader, model, loss_fn, device, use_amp=args.amp, accumulation_steps=args.accumulation_steps)
+            val_loss = evaluate(validation_loader, model, loss_fn, device, use_amp=args.amp, accumulation_steps=args.accumulation_steps, log_every=args.log_every)
             print("Epoch {}: Validation loss: {}".format(epoch, val_loss))
             history.append((epoch, val_loss))
             np.savetxt(history_path, np.array(history), delimiter=",", header="epoch,val_loss", comments="")
@@ -78,6 +79,7 @@ if __name__ == "__main__":
     parser.add_argument("noise_schedule", help="Noise schedule of forward diffusion process")
     parser.add_argument("model_config", help="json file specifying model name and hyperparameters")
     parser.add_argument("-e", "--epochs", type=int, help="Number of epochs to train")
+    parser.add_argument("--lr", type=float, default=1e-4, help="AdamW learning rate (default: 1e-4, tuned for the original batch_size=5 runs -- larger batch sizes/hit budgets mean far fewer gradient updates per epoch, so may need a proportionally higher value)")
     parser.add_argument("-b", "--batch-size", type=int, help="Fixed batch size, the same for every event. Mutually exclusive with --hit-budget")
     parser.add_argument("--hit-budget", type=int, help="Instead of a fixed batch size, cap each batch at roughly this many total hits (batch_size x n_hits), with batch_size chosen per-event as the largest divisor of the schedule's timestep count that fits. Use this when per-event hit counts vary enormously, so a single fixed --batch-size either OOMs on the largest events or wastes GPU utilization on the rest. Mutually exclusive with --batch-size")
     parser.add_argument("--variance-loss-weight", type=float, default=1.0, help="Weight on the variance-training loss term (only used when predict_variances=True)")
@@ -85,4 +87,5 @@ if __name__ == "__main__":
     parser.add_argument("-t", "--tag", default=None, help="Experiment tag for naming outputs (default: config filename stem)")
     parser.add_argument("--amp", action="store_true", help="Train under automatic mixed precision (torch.autocast + GradScaler) to reduce GPU memory use")
     parser.add_argument("--accumulation-steps", type=int, default=1, help="Split each batch into this many micro-batches, accumulating gradients before each optimizer step, to reduce peak GPU memory use without changing batch size (must divide batch size evenly)")
+    parser.add_argument("--log-every", type=int, default=0, help="Print a one-line progress message (batch size, hit count) every this many steps, during both training and evaluation. 0 (default) disables it -- meant for watching a run live (e.g. an interactive node), not for long batch jobs where it would just bloat the log")
     print("\nFinished with exit code:", main(parser.parse_args()))

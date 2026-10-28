@@ -18,7 +18,8 @@ def train(
     device : torch.device,
     scaler : torch.amp.GradScaler | None = None,
     accumulation_steps : int = 1,
-    max_steps_diagnostics : int = 0
+    max_steps_diagnostics : int = 0,
+    log_every : int = 0,
 ):
     """
     Trains the model for one epoch.
@@ -42,6 +43,12 @@ def train(
         resulting gradient) unchanged. The dataloader's batch size must be divisible by it.
     max_steps_diagnostics : int
         Maximum number of steps to print diagnostics
+    log_every : int
+        Print a one-line progress message every this many steps (batch size, hit count, running
+        loss). 0 disables it. Per-event hit counts in this dataset range over two orders of
+        magnitude, so a step can silently take much longer than its neighbors -- this is mainly
+        useful for telling "still working on a big event" apart from "actually stuck" when
+        watching a run live (e.g. on an interactive node), without flooding a long batch job's log.
 
     Returns
     -------
@@ -54,6 +61,9 @@ def train(
     for istep in range(dataloader.nsteps):
         X, y, tau = next(dataloader)
         X, y, tau = X.to(device), y.to(device), tau.to(device)
+
+        if log_every and istep % log_every == 0:
+            print(f"[train] step {istep + 1}/{dataloader.nsteps}: batch_size={X.shape[0]}, nhits={X.shape[-2]}", flush=True)
 
         if accumulation_steps > 1 and X.shape[0] % accumulation_steps != 0:
             raise ValueError("Batch size must be divisible by accumulation_steps")
@@ -125,6 +135,7 @@ def evaluate(
     device : torch.device,
     use_amp : bool = False,
     accumulation_steps : int = 1,
+    log_every : int = 0,
 ):
     """
     Parameters
@@ -144,6 +155,9 @@ def evaluate(
         time, to reduce peak activation memory. Purely a memory knob -- does not change the
         returned loss (no gradients are computed here, so there is nothing to accumulate).
         The dataloader's batch size must be divisible by it.
+    log_every : int
+        Print a one-line progress message every this many steps (batch size, hit count). 0
+        disables it. See the matching parameter on train() for why this exists.
 
     Returns
     -------
@@ -157,6 +171,9 @@ def evaluate(
         for istep in range(dataloader.nsteps):
             X, y, tau = next(dataloader)
             X, y, tau = X.to(device), y.to(device), tau.to(device)
+
+            if log_every and istep % log_every == 0:
+                print(f"[eval] step {istep + 1}/{dataloader.nsteps}: batch_size={X.shape[0]}, nhits={X.shape[-2]}", flush=True)
 
             if accumulation_steps > 1 and X.shape[0] % accumulation_steps != 0:
                 raise ValueError("Batch size must be divisible by accumulation_steps")
