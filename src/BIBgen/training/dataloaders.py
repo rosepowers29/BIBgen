@@ -81,7 +81,10 @@ class BatchedDataLoader(BaseDataLoader):
         super().__init__(infile, key, shuffle)
 
         if batch_size is None:
-            possible_factors = np.arange(1, round(np.sqrt(self.ntau)))
+            # All divisors of ntau, not just those <= sqrt(ntau) -- a search capped at sqrt(ntau)
+            # would, e.g., cap every batch at 8 for ntau=256 (2**8), since 1/2/4/8 are its only
+            # divisors below 16, regardless of how large hit_budget is.
+            possible_factors = np.arange(1, self.ntau + 1)
             self.ntau_factors = possible_factors[self.ntau % possible_factors == 0]
         else:
             if self.ntau % batch_size != 0:
