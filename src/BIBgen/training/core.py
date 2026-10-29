@@ -105,20 +105,32 @@ def train(
                 else:
                     loss.backward()
 
-            if max_grad_norm is not None:
+            want_grad_norm = max_grad_norm is not None or istep < max_steps_diagnostics
+            if want_grad_norm:
                 if scaler is not None:
-                    # Gradients are still scaled by scaler's factor at this point; clipping
-                    # against the unscaled magnitude requires unscaling first, or max_grad_norm
-                    # would be compared against values inflated by the (dynamic) scale factor.
+                    # Gradients are still scaled by scaler's factor at this point; measuring or
+                    # clipping against that would compare against values inflated by the
+                    # (dynamic) scale factor rather than the true gradient magnitude.
                     scaler.unscale_(optimizer)
-                torch.nn.utils.clip_grad_norm_(model.parameters(), max_grad_norm)
+                # max_norm=inf is a standard "measure, don't modify" trick when only diagnostics
+                # were requested: clip_coef is always >= 1, so no scaling is ever applied.
+                total_norm = torch.nn.utils.clip_grad_norm_(
+                    model.parameters(), max_grad_norm if max_grad_norm is not None else float("inf")
+                )
+
+            if istep < max_steps_diagnostics:
+                # Previously nested under the no-AMP branch below, so it never printed under
+                # --amp at all (scaler is never None there) -- now runs regardless of AMP, and
+                # p.grad reflects the unscaled gradient either way thanks to the unscale_ above.
+                log_per_layer_grads(model)
+                if want_grad_norm:
+                    clip_note = f" (clipped to {max_grad_norm})" if max_grad_norm is not None and total_norm.item() > max_grad_norm else ""
+                    print(f"  global grad norm: {total_norm.item():.3e}{clip_note}")
 
             if scaler is not None:
                 scaler.step(optimizer)
                 scaler.update()
             else:
-                if istep < max_steps_diagnostics:
-                    log_per_layer_grads(model)
                 optimizer.step()
         except torch.cuda.OutOfMemoryError:
             print("Failed step {}, cuda out of memory".format(istep))
