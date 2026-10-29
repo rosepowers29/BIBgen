@@ -20,6 +20,7 @@ def train(
     accumulation_steps : int = 1,
     max_steps_diagnostics : int = 0,
     log_every : int = 0,
+    max_grad_norm : float | None = None,
 ):
     """
     Trains the model for one epoch.
@@ -49,6 +50,11 @@ def train(
         magnitude, so a step can silently take much longer than its neighbors -- this is mainly
         useful for telling "still working on a big event" apart from "actually stuck" when
         watching a run live (e.g. on an interactive node), without flooding a long batch job's log.
+    max_grad_norm : float | None
+        If given, clip each step's (post-accumulation) global gradient norm to this value before
+        the optimizer step. Guards against a single pathological batch (e.g. a numerically rough
+        outlier event, more so under --amp's narrower fp16 range) applying an outsized update
+        that derails training for many subsequent epochs. None (default) disables clipping.
 
     Returns
     -------
@@ -98,6 +104,14 @@ def train(
                     scaler.scale(loss).backward()
                 else:
                     loss.backward()
+
+            if max_grad_norm is not None:
+                if scaler is not None:
+                    # Gradients are still scaled by scaler's factor at this point; clipping
+                    # against the unscaled magnitude requires unscaling first, or max_grad_norm
+                    # would be compared against values inflated by the (dynamic) scale factor.
+                    scaler.unscale_(optimizer)
+                torch.nn.utils.clip_grad_norm_(model.parameters(), max_grad_norm)
 
             if scaler is not None:
                 scaler.step(optimizer)

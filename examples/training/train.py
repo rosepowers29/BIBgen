@@ -21,6 +21,8 @@ def main(args):
     assert model_config_path.endswith(".json")
     if (batch_size is None) == (hit_budget is None):
         raise SystemExit("Specify exactly one of --batch-size or --hit-budget")
+    if args.resume and args.init_weights:
+        raise SystemExit("--resume and --init-weights are mutually exclusive")
 
     tag = args.tag or os.path.splitext(os.path.basename(model_config_path))[0]
     out_path = args.out or f"denoiser_{tag}.pth"
@@ -68,6 +70,14 @@ def main(args):
         else:
             print(f"--resume given but {checkpoint_path} does not exist; starting fresh")
 
+    if history is None and args.init_weights:
+        # A plain model.state_dict() (e.g. a prior run's denoiser_<tag>.pth), not a --resume-style
+        # checkpoint -- warm-starts the model only. Optimizer/epoch/history all start fresh, which
+        # is deliberate: this is for restarting past a derailed run without carrying forward
+        # whatever optimizer state (e.g. AdamW momentum) contributed to the derailment.
+        model.load_state_dict(torch.load(args.init_weights, map_location=device, weights_only=True))
+        print(f"Initialized model weights from {args.init_weights}")
+
     if history is None:
         best_val_loss = evaluate(validation_loader, model, loss_fn, device, use_amp=args.amp, accumulation_steps=args.accumulation_steps, log_every=args.log_every)
         print("Before training: Validation loss: {}".format(best_val_loss))
@@ -81,7 +91,7 @@ def main(args):
             training_loader, model, loss_fn, optimizer, device,
             scaler=scaler, accumulation_steps=args.accumulation_steps,
             max_steps_diagnostics=5 if epoch < 5 else 0,
-            log_every=args.log_every,
+            log_every=args.log_every, max_grad_norm=args.grad_clip,
         )
 
         if epoch < 10 or epoch % 5 == 0:
@@ -127,4 +137,6 @@ if __name__ == "__main__":
     parser.add_argument("--accumulation-steps", type=int, default=1, help="Split each batch into this many micro-batches, accumulating gradients before each optimizer step, to reduce peak GPU memory use without changing batch size (must divide batch size evenly)")
     parser.add_argument("--log-every", type=int, default=0, help="Print a one-line progress message (batch size, hit count) every this many steps, during both training and evaluation. 0 (default) disables it -- meant for watching a run live (e.g. an interactive node), not for long batch jobs where it would just bloat the log")
     parser.add_argument("--resume", action="store_true", help="Resume from checkpoint_<tag>.pth (model, optimizer, scaler, epoch, and history) if it exists, continuing to -e/--epochs. If no checkpoint is found, starts fresh. Use this to continue a run that was killed (e.g. hit its walltime) without losing progress")
+    parser.add_argument("--init-weights", default=None, help="Warm-start the model from a plain model.state_dict() .pth file (e.g. a prior run's denoiser_<tag>.pth), with a fresh optimizer/epoch-0/history -- unlike --resume, does not carry over optimizer state. Use this to restart past a derailed run from an earlier good checkpoint without inheriting whatever optimizer state caused the derailment. Mutually exclusive with --resume")
+    parser.add_argument("--grad-clip", type=float, default=None, help="Clip each step's global gradient norm to this value before the optimizer step, to guard against a single pathological batch derailing training for many subsequent epochs. None (default) disables clipping")
     print("\nFinished with exit code:", main(parser.parse_args()))
