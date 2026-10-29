@@ -21,6 +21,7 @@ def train(
     max_steps_diagnostics : int = 0,
     log_every : int = 0,
     max_grad_norm : float | None = None,
+    scheduler : torch.optim.lr_scheduler.LRScheduler | None = None,
 ):
     """
     Trains the model for one epoch.
@@ -55,6 +56,11 @@ def train(
         the optimizer step. Guards against a single pathological batch (e.g. a numerically rough
         outlier event, more so under --amp's narrower fp16 range) applying an outsized update
         that derails training for many subsequent epochs. None (default) disables clipping.
+    scheduler : torch.optim.lr_scheduler.LRScheduler | None
+        Stepped once per applied optimizer step (i.e. this persists across epochs -- construct it
+        once outside the epoch loop and pass the same instance in every call). Not stepped on a
+        step that scaler skipped due to detected inf/nan, so warmup schedules don't silently
+        advance on updates that were never actually applied. None (default) keeps lr constant.
 
     Returns
     -------
@@ -139,10 +145,19 @@ def train(
                     print(f"  global grad norm: {norm_value:.3e}{note}")
 
             if scaler is not None:
+                # If scale shrank, this step's update was skipped (inf/nan detected during
+                # unscale_) -- standard pattern for combining GradScaler with an LR scheduler:
+                # don't advance the schedule on a step that was never actually applied.
+                scale_before = scaler.get_scale()
                 scaler.step(optimizer)
                 scaler.update()
+                step_applied = scaler.get_scale() >= scale_before
             else:
                 optimizer.step()
+                step_applied = True
+
+            if scheduler is not None and step_applied:
+                scheduler.step()
         except torch.cuda.OutOfMemoryError:
             print("Failed step {}, cuda out of memory".format(istep))
             print("X.size() : {}, y.size() : {}, accumulation_steps : {}".format(X.size(), y.size(), accumulation_steps))

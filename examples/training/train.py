@@ -48,6 +48,17 @@ def main(args):
 
     optimizer = torch.optim.AdamW(model.parameters(), lr=args.lr, weight_decay=1e-2)
     scaler = torch.amp.GradScaler("cuda") if args.amp and device.type == "cuda" else None
+    # Linear warmup only (no decay): ramps lr from 1/warmup_steps up to the full --lr over the
+    # first warmup_steps *applied* optimizer steps, then holds there. Guards against AdamW's
+    # bias-correction inflating the effective step size during the first several iterations after
+    # a fresh optimizer reset (--init-weights, or any run start) enough to push every hidden ReLU
+    # negative in one shot -- gradient clipping alone doesn't catch this, since it bounds the raw
+    # gradient, not Adam's bias-corrected transform of it.
+    scheduler = None
+    if args.warmup_steps > 0:
+        scheduler = torch.optim.lr_scheduler.LambdaLR(
+            optimizer, lr_lambda=lambda step: min(1.0, (step + 1) / args.warmup_steps)
+        )
 
     start_epoch = 0
     best_val_loss = None
@@ -63,6 +74,8 @@ def main(args):
             optimizer.load_state_dict(checkpoint["optimizer"])
             if scaler is not None and checkpoint.get("scaler") is not None:
                 scaler.load_state_dict(checkpoint["scaler"])
+            if scheduler is not None and checkpoint.get("scheduler") is not None:
+                scheduler.load_state_dict(checkpoint["scheduler"])
             start_epoch = checkpoint["epoch"] + 1
             best_val_loss = checkpoint["best_val_loss"]
             history = checkpoint["history"]
@@ -92,6 +105,7 @@ def main(args):
             scaler=scaler, accumulation_steps=args.accumulation_steps,
             max_steps_diagnostics=5 if epoch < 5 else 0,
             log_every=args.log_every, max_grad_norm=args.grad_clip,
+            scheduler=scheduler,
         )
 
         if epoch < 10 or epoch % 5 == 0:
@@ -113,6 +127,7 @@ def main(args):
             "model": model.state_dict(),
             "optimizer": optimizer.state_dict(),
             "scaler": scaler.state_dict() if scaler is not None else None,
+            "scheduler": scheduler.state_dict() if scheduler is not None else None,
             "epoch": epoch,
             "best_val_loss": best_val_loss,
             "history": history,
@@ -139,4 +154,5 @@ if __name__ == "__main__":
     parser.add_argument("--resume", action="store_true", help="Resume from checkpoint_<tag>.pth (model, optimizer, scaler, epoch, and history) if it exists, continuing to -e/--epochs. If no checkpoint is found, starts fresh. Use this to continue a run that was killed (e.g. hit its walltime) without losing progress")
     parser.add_argument("--init-weights", default=None, help="Warm-start the model from a plain model.state_dict() .pth file (e.g. a prior run's denoiser_<tag>.pth), with a fresh optimizer/epoch-0/history -- unlike --resume, does not carry over optimizer state. Use this to restart past a derailed run from an earlier good checkpoint without inheriting whatever optimizer state caused the derailment. Mutually exclusive with --resume")
     parser.add_argument("--grad-clip", type=float, default=None, help="Clip each step's global gradient norm to this value before the optimizer step, to guard against a single pathological batch derailing training for many subsequent epochs. None (default) disables clipping")
+    parser.add_argument("--warmup-steps", type=int, default=0, help="Linearly ramp lr from 1/warmup_steps up to the full --lr over this many applied optimizer steps, then hold there (no decay). Guards against AdamW's bias correction inflating the effective step size right after a fresh optimizer reset (e.g. --init-weights) enough to kill every hidden ReLU in one shot. 0 (default) disables warmup -- lr is --lr from step 0")
     print("\nFinished with exit code:", main(parser.parse_args()))
