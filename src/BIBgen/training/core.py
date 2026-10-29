@@ -113,7 +113,8 @@ def train(
                 else:
                     (loss / accumulation_steps).backward()
 
-            want_grad_norm = max_grad_norm is not None or istep < max_steps_diagnostics
+            want_diagnostics = istep < max_steps_diagnostics or (log_every and istep % log_every == 0)
+            want_grad_norm = max_grad_norm is not None or want_diagnostics
             if want_grad_norm:
                 if scaler is not None:
                     # Gradients are still scaled by scaler's factor at this point; measuring or
@@ -126,7 +127,13 @@ def train(
                     model.parameters(), max_grad_norm if max_grad_norm is not None else float("inf")
                 )
 
-            if istep < max_steps_diagnostics:
+            if want_diagnostics:
+                # max_steps_diagnostics alone only covers the first 5 steps of the first 5
+                # epochs -- far too narrow a window to catch a collapse that can occur anywhere
+                # in a (potentially long, heavy-tailed) epoch. OR'd with log_every above so
+                # --log-every N also gets grad-norm visibility across the whole run, not just
+                # progress info, when actually hunting for where/when something goes wrong.
+                #
                 # Previously nested under the no-AMP branch below, so it never printed under
                 # --amp at all (scaler is never None there) -- now runs regardless of AMP, and
                 # p.grad reflects the unscaled gradient either way thanks to the unscale_ above.
