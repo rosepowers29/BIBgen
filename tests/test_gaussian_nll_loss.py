@@ -62,7 +62,7 @@ def test_GaussianNLLLoss_per_batch_variance_matches_manual():
     var_expanded = variance.view(B, 1, 1).expand(B, N, 4)
     expected_per_event = (0.5 * (1.8378770664093453 + torch.log(var_expanded)
                                   + (actual - mu) ** 2 / var_expanded)).mean(dim=(1, 2))
-    assert loss.item() == pytest.approx(expected_per_event.sum().item(), abs=1e-5)
+    assert loss.item() == pytest.approx(expected_per_event.mean().item(), abs=1e-5)
 
 def test_DecoupledGaussianNLLLoss_mu_grad_matches_mean_term_alone():
     """variance_loss's contribution to mu's gradient must be exactly zero."""
