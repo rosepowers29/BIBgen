@@ -170,7 +170,7 @@ def diffuse(features : ArrayLike, betas : Sequence) -> ArrayLike:
 
     return result
 
-def quadratic_beta_schedule(n_timesteps : int, scale : float = 3e-5) -> np.ndarray:
+def quadratic_beta_schedule(n_timesteps : int, scale : float = 3e-5, beta_floor : float | None = None) -> np.ndarray:
     r"""
     Quadratic noise schedule: $\beta_\tau = \text{scale} \cdot \tau^2$ for $\tau = 1 \dots T$.
 
@@ -183,6 +183,15 @@ def quadratic_beta_schedule(n_timesteps : int, scale : float = 3e-5) -> np.ndarr
         Number of diffusion timesteps $T$.
     scale : float
         Coefficient multiplying $\tau^2$.
+    beta_floor : float, optional
+        Minimum allowed beta value. Since $\beta_1 = \text{scale}$ exactly, deriving ``scale``
+        to hit a target $\bar\alpha_T$ at large $T$ (see ``cosine_beta_schedule``'s
+        ``target_alpha_bar_T``, which ``quadratic_beta_schedule`` is sometimes scale-matched
+        against) can drive $\beta_1$ arbitrarily close to zero as a side effect -- with no
+        independent control over the low end. A near-zero beta is numerically dangerous for
+        downstream code that divides by it (e.g. ``GaussianNLLLoss``), so this clips the first
+        few timesteps up to ``beta_floor`` where the quadratic curve would otherwise dip below
+        it. None (default) disables this, preserving the original unclipped curve.
 
     Returns
     -------
@@ -190,7 +199,10 @@ def quadratic_beta_schedule(n_timesteps : int, scale : float = 3e-5) -> np.ndarr
         Array of shape `(n_timesteps,)` with $\beta_\tau$ for $\tau = 1 \dots T$.
     """
     tau = np.arange(1, n_timesteps + 1)
-    return scale * tau**2
+    betas = scale * tau**2
+    if beta_floor is not None:
+        betas = np.maximum(betas, beta_floor)
+    return betas
 
 def cosine_beta_schedule(
     n_timesteps : int,

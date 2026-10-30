@@ -12,7 +12,7 @@ def main(args):
         raise SystemExit(f"{outpath} already exists; pass --force to overwrite.")
 
     if args.type == "quadratic":
-        schedule = quadratic_beta_schedule(args.n_timesteps, scale=args.scale)
+        schedule = quadratic_beta_schedule(args.n_timesteps, scale=args.scale, beta_floor=args.beta_floor)
     else:
         schedule = cosine_beta_schedule(
             args.n_timesteps,
@@ -37,6 +37,7 @@ if __name__ == "__main__":
     parser.add_argument("out", help="Output CSV path (np.loadtxt-compatible, one beta per line)")
     parser.add_argument("-T", "--n-timesteps", type=int, default=100)
     parser.add_argument("--scale", type=float, default=3e-5, help="[quadratic] beta(tau) = scale * tau^2")
+    parser.add_argument("--beta-floor", type=float, default=None, help="[quadratic] clip low-tau betas up to this value -- beta(1) = scale exactly, so deriving scale to hit a target alpha_bar_T at large T can push it arbitrarily close to zero, which GaussianNLLLoss dividing by it does not handle gracefully. None (default) disables clipping")
     parser.add_argument("--s", type=float, default=0.008, help="[cosine] offset (Nichol & Dhariwal)")
     parser.add_argument("--target-alpha-bar-t", type=float, default=1e-5, help="[cosine] target alpha_bar at tau=T")
     parser.add_argument("--beta-clip", type=float, default=0.999, help="[cosine] defensive max beta")

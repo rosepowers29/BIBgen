@@ -43,6 +43,13 @@ def test_quadratic_beta_schedule_matches_baseline():
     baseline = np.loadtxt(Path(__file__).parent.parent / "config" / "noise_schedules" / "noise_schedule.csv")
     assert np.array_equal(schedule, baseline)
 
+def test_quadratic_beta_schedule_beta_floor_clips_low_tau_only():
+    schedule = quadratic_beta_schedule(10, scale=1e-6, beta_floor=3e-5)
+    # beta(tau) = 1e-6 * tau^2 stays below the 3e-5 floor through tau=5 (1e-6*25=2.5e-5),
+    # and exceeds it from tau=6 onward (1e-6*36=3.6e-5) -- only the low end should be clipped.
+    assert np.all(schedule[:5] == 3e-5)
+    assert np.array_equal(schedule[5:], 1e-6 * np.arange(6, 11) ** 2)
+
 def test_cosine_beta_schedule_hits_target_alpha_bar():
     schedule = cosine_beta_schedule(100, target_alpha_bar_T=1e-5)
     alpha_bar_T = np.prod(1 - schedule)
