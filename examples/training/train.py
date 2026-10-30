@@ -1,4 +1,5 @@
 import os
+import math
 import argparse
 
 import h5py
@@ -48,17 +49,26 @@ def main(args):
 
     optimizer = torch.optim.AdamW(model.parameters(), lr=args.lr, weight_decay=1e-2)
     scaler = torch.amp.GradScaler("cuda") if args.amp and device.type == "cuda" else None
-    # Linear warmup only (no decay): ramps lr from 1/warmup_steps up to the full --lr over the
-    # first warmup_steps *applied* optimizer steps, then holds there. Guards against AdamW's
-    # bias-correction inflating the effective step size during the first several iterations after
-    # a fresh optimizer reset (--init-weights, or any run start) enough to push every hidden ReLU
+    # Linear warmup (ramps lr from 1/warmup_steps up to the full --lr over the first
+    # warmup_steps *applied* optimizer steps, guarding against AdamW's bias-correction inflating
+    # the effective step size right after a fresh optimizer reset enough to push hidden units
     # negative in one shot -- gradient clipping alone doesn't catch this, since it bounds the raw
-    # gradient, not Adam's bias-corrected transform of it.
+    # gradient, not Adam's bias-corrected transform of it), optionally followed by cosine decay
+    # to 0 over the rest of training. Without decay, a constant --lr tuned for rapid progress
+    # from a mediocre starting point can be too aggressive once the model is already near a good
+    # optimum, repeatedly kicking it back out rather than refining within it.
     scheduler = None
-    if args.warmup_steps > 0:
-        scheduler = torch.optim.lr_scheduler.LambdaLR(
-            optimizer, lr_lambda=lambda step: min(1.0, (step + 1) / args.warmup_steps)
-        )
+    if args.warmup_steps > 0 or args.lr_decay:
+        total_steps = nepochs * training_loader.nsteps
+        def lr_lambda(step, warmup_steps=args.warmup_steps, decay=args.lr_decay, total_steps=total_steps):
+            if warmup_steps > 0 and step < warmup_steps:
+                return (step + 1) / warmup_steps
+            if not decay:
+                return 1.0
+            decay_steps = max(1, total_steps - warmup_steps)
+            progress = min((step - warmup_steps) / decay_steps, 1.0)
+            return 0.5 * (1 + math.cos(math.pi * progress))
+        scheduler = torch.optim.lr_scheduler.LambdaLR(optimizer, lr_lambda=lr_lambda)
 
     start_epoch = 0
     best_val_loss = None
@@ -154,5 +164,6 @@ if __name__ == "__main__":
     parser.add_argument("--resume", action="store_true", help="Resume from checkpoint_<tag>.pth (model, optimizer, scaler, epoch, and history) if it exists, continuing to -e/--epochs. If no checkpoint is found, starts fresh. Use this to continue a run that was killed (e.g. hit its walltime) without losing progress")
     parser.add_argument("--init-weights", default=None, help="Warm-start the model from a plain model.state_dict() .pth file (e.g. a prior run's denoiser_<tag>.pth), with a fresh optimizer/epoch-0/history -- unlike --resume, does not carry over optimizer state. Use this to restart past a derailed run from an earlier good checkpoint without inheriting whatever optimizer state caused the derailment. Mutually exclusive with --resume")
     parser.add_argument("--grad-clip", type=float, default=None, help="Clip each step's global gradient norm to this value before the optimizer step, to guard against a single pathological batch derailing training for many subsequent epochs. None (default) disables clipping")
-    parser.add_argument("--warmup-steps", type=int, default=0, help="Linearly ramp lr from 1/warmup_steps up to the full --lr over this many applied optimizer steps, then hold there (no decay). Guards against AdamW's bias correction inflating the effective step size right after a fresh optimizer reset (e.g. --init-weights) enough to kill every hidden ReLU in one shot. 0 (default) disables warmup -- lr is --lr from step 0")
+    parser.add_argument("--warmup-steps", type=int, default=0, help="Linearly ramp lr from 1/warmup_steps up to the full --lr over this many applied optimizer steps. Guards against AdamW's bias correction inflating the effective step size right after a fresh optimizer reset (e.g. --init-weights) enough to kill every hidden ReLU in one shot. 0 (default) disables warmup -- lr starts at the full --lr from step 0 (or immediately begins decaying there, if --lr-decay is also given)")
+    parser.add_argument("--lr-decay", action="store_true", help="After warmup (if any), cosine-decay lr from the full --lr down to 0 over the rest of training (-e epochs worth of applied optimizer steps). Without this, lr holds constant at --lr after warmup -- fine for making rapid progress from a mediocre starting point, but a fixed lr tuned for that can be too aggressive once the model is already near a good optimum, repeatedly knocking it back out instead of refining within it")
     print("\nFinished with exit code:", main(parser.parse_args()))
