@@ -122,12 +122,12 @@ class EquivariantDenoiser(nn.Module):
 
         equivariant_layers = [
             ("hidden0", self.get_layer(encoding_size, hidden_layer_size)),
-            ("activation0", nn.ReLU())
+            ("activation0", nn.LeakyReLU())
         ]
         for ihidden in range(1, n_hidden_layers):
             equivariant_layers += [
                 ("hidden{}".format(ihidden), self.get_layer(hidden_layer_size, hidden_layer_size)),
-                ("activation{}".format(ihidden), nn.ReLU())
+                ("activation{}".format(ihidden), nn.LeakyReLU())
             ]
 
         self.predict_variances = predict_variances

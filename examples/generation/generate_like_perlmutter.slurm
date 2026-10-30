@@ -23,7 +23,7 @@
 #SBATCH --qos=shared
 #SBATCH --nodes=1
 #SBATCH --ntasks=1
-#SBATCH --cpus-per-task=8
+#SBATCH --cpus-per-task=32
 #SBATCH --gpus-per-task=1
 #SBATCH --time=06:00:00
 
@@ -59,7 +59,7 @@ nvidia-smi --query-gpu=name,memory.total --format=csv,noheader
 
 cd "$OUT_DIR"
 # shellcheck disable=SC2086  # GENERATE_ARGS is deliberately word-split
-srun -n 1 -c 8 --cpu-bind=cores -G 1 --gpu-bind=none \
+srun -n 1 -c 32 --cpu-bind=cores -G 1 --gpu-bind=none \
     python "$REPO/examples/generation/generate_like.py" "$model_path" \
     "$REPO/config/models/$CONFIG" "$REPO/config/noise_schedules/$SCHEDULE" "$SIZES" -t "$TAG" $GENERATE_ARGS
 
