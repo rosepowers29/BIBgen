@@ -53,6 +53,24 @@ class GaussianNLLLoss(nn.Module):
         # to use, which varies enormously under BatchedDataLoader's hit_budget mode.
         return loss.mean(dim=(1, 2)).mean(dim=0) if loss.dim() > 2 else loss.mean()
 
+    def diagnostics(self, mu, variance, actual):
+        """
+        Returns the batch's worst-case (max, not mean) squared_error and normalized_error,
+        without affecting the loss computation itself. The mean loss returned by forward() can
+        hide a single outsized per-hit contribution -- useful for catching which timestep/event
+        is actually responsible for a large or non-finite gradient.
+        """
+        with torch.no_grad():
+            variance = variance + self.eps
+            squared_error = (actual - mu) ** 2
+            if variance.shape != squared_error.shape:
+                variance = variance.unsqueeze(-1).unsqueeze(-1).expand(*variance.shape, *squared_error.shape[-2:])
+            normalized_error = squared_error / variance
+            return {
+                "max_squared_error": squared_error.max().item(),
+                "max_normalized_error": normalized_error.max().item(),
+            }
+
 
 class DecoupledGaussianNLLLoss(nn.Module):
     """

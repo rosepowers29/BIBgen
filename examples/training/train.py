@@ -43,9 +43,14 @@ def main(args):
     if model.predict_variances:
         gaussian_nll = DecoupledGaussianNLLLoss(variance_loss_weight=args.variance_loss_weight)
         loss_fn = lambda pred, y, tau: gaussian_nll(pred[0], pred[1], y)
+        # DecoupledGaussianNLLLoss trains mu against the model's own (learned) variance, not the
+        # fixed schedule -- diagnose against that directly rather than schedule[tau], which this
+        # loss doesn't even use.
+        loss_diagnostics_fn = lambda pred, y, tau: gaussian_nll.nll.diagnostics(pred[0], pred[1], y)
     else:
         gaussian_nll = GaussianNLLLoss()
         loss_fn = lambda pred, y, tau: gaussian_nll(pred, schedule[tau], y)
+        loss_diagnostics_fn = lambda pred, y, tau: gaussian_nll.diagnostics(pred, schedule[tau], y)
 
     optimizer = torch.optim.AdamW(model.parameters(), lr=args.lr, weight_decay=1e-2)
     scaler = torch.amp.GradScaler("cuda") if args.amp and device.type == "cuda" else None
@@ -115,7 +120,7 @@ def main(args):
             scaler=scaler, accumulation_steps=args.accumulation_steps,
             max_steps_diagnostics=5 if epoch < 5 else 0,
             log_every=args.log_every, max_grad_norm=args.grad_clip,
-            scheduler=scheduler,
+            scheduler=scheduler, loss_diagnostics_fn=loss_diagnostics_fn,
         )
 
         if epoch < 10 or epoch % 5 == 0:

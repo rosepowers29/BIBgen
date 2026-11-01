@@ -22,6 +22,7 @@ def train(
     log_every : int = 0,
     max_grad_norm : float | None = None,
     scheduler : torch.optim.lr_scheduler.LRScheduler | None = None,
+    loss_diagnostics_fn : Callable | None = None,
 ):
     """
     Trains the model for one epoch.
@@ -60,7 +61,14 @@ def train(
         Stepped once per applied optimizer step (i.e. this persists across epochs -- construct it
         once outside the epoch loop and pass the same instance in every call). Not stepped on a
         step that scaler skipped due to detected inf/nan, so warmup schedules don't silently
-        advance on updates that were never actually applied. None (default) keeps lr constant.
+        advance on updates that were never actually applied.
+    loss_diagnostics_fn : Callable | None
+        If given, called as loss_diagnostics_fn(pred, y_sub, tau_sub) whenever per-step
+        diagnostics are printed (see max_steps_diagnostics/log_every above), and expected to
+        return a dict of {name: value} to print alongside the existing per-layer gradient norms.
+        The mean loss returned by loss_fn can hide a single outsized per-hit contribution (e.g.
+        an unusually hard event coinciding with a small-variance timestep) -- this surfaces the
+        batch's worst-case value directly instead. None (default) disables this. None (default) keeps lr constant.
 
     Returns
     -------
@@ -138,6 +146,12 @@ def train(
                 # --amp at all (scaler is never None there) -- now runs regardless of AMP, and
                 # p.grad reflects the unscaled gradient either way thanks to the unscale_ above.
                 log_per_layer_grads(model)
+                if loss_diagnostics_fn is not None:
+                    tau_min = tau_sub.min().item() if tau_sub.dim() > 0 else tau_sub.item()
+                    tau_max = tau_sub.max().item() if tau_sub.dim() > 0 else tau_sub.item()
+                    diag = loss_diagnostics_fn(pred, y_sub, tau_sub)
+                    diag_str = "  ".join(f"{k}={v:.3e}" for k, v in diag.items())
+                    print(f"  loss diagnostics: tau_range=[{tau_min}, {tau_max}]  {diag_str}")
                 if want_grad_norm:
                     norm_value = total_norm.item()
                     if not np.isfinite(norm_value):
