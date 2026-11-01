@@ -64,6 +64,25 @@ def test_GaussianNLLLoss_per_batch_variance_matches_manual():
                                   + (actual - mu) ** 2 / var_expanded)).mean(dim=(1, 2))
     assert loss.item() == pytest.approx(expected_per_event.mean().item(), abs=1e-5)
 
+def test_GaussianNLLLoss_clamps_normalized_error():
+    """A tiny variance combined with an ordinary prediction error must not blow up the loss."""
+    N = 10
+    mu = torch.zeros(N, 4, requires_grad=True)
+    actual = torch.ones(N, 4) * 2  # squared_error = 4 for every element
+    variance = torch.tensor(1e-6)  # near the eps floor -- would give normalized_error ~4e6 unclamped
+
+    loss_fn = GaussianNLLLoss(eps=0.0, max_normalized_error=1e4)
+    loss = loss_fn(mu, variance, actual)
+
+    expected = 0.5 * (1.8378770664093453 + torch.log(variance) + 1e4)
+    assert loss.item() == pytest.approx(expected.item(), abs=1e-2)
+
+    loss.backward()
+    assert torch.isfinite(mu.grad).all()
+    # Clamped region has zero gradient w.r.t. mu -- the whole point is to stop this batch from
+    # producing a training-derailing update, not just a training-derailing loss value.
+    assert (mu.grad == 0).all()
+
 def test_DecoupledGaussianNLLLoss_mu_grad_matches_mean_term_alone():
     """variance_loss's contribution to mu's gradient must be exactly zero."""
     N = 50
