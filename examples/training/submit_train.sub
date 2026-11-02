@@ -7,6 +7,11 @@ output = job_$(tag)_$(Cluster)_$(Process).out
 
 executable = run_train.sh
 arguments = $(data) $(config) $(tag) $(schedule) $(batch_size)
+# EPOCHS/TRAIN_ARGS go through as environment variables rather than extra positional args, since
+# a single $(train_args) column (e.g. "--amp --hit-budget 1000000 --grad-clip 10") needs to stay
+# one value here, not get word-split the way Slurm's export mechanism word-splits TRAIN_ARGS.
+# Condor's own environment syntax does the equivalent: single-quote a value to keep its spaces.
+environment = "EPOCHS=$(epochs) TRAIN_ARGS='$(train_args)'"
 
 +JobDurationCategory = "Medium"
 
@@ -22,7 +27,13 @@ request_memory = 8GB
 request_disk = 50GB
 
 transfer_input_files = train.py, ../../src, ../../config, osdf:///ospool/uc-shared/project/futurecolliders/rosep8/$(data)
-transfer_output_files = denoiser_$(tag).pth, history_$(tag).csv
+# checkpoint_$(tag).pth is always transferred back out (train.py saves it every epoch
+# unconditionally), so a later run can pick it up via submit_resume_train.sub -- that file's
+# transfer_input_files also brings it back in, which this one deliberately does not, since a
+# fresh (non-resuming) row here has no existing checkpoint yet to upload.
+transfer_output_files = denoiser_$(tag).pth, history_$(tag).csv, checkpoint_$(tag).pth
 should_transfer_files = YES
 
-queue data,config,tag,schedule,batch_size from experiments_sched.txt
+# epochs/train_args are optional trailing columns -- existing rows without them just get
+# EPOCHS="" (falls back to 151 in run_train.sh) and TRAIN_ARGS="".
+queue data,config,tag,schedule,batch_size,epochs,train_args from experiments_sched.txt

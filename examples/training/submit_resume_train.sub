@@ -1,0 +1,35 @@
+universe = container
+container_image = /cvmfs/singularity.opensciencegrid.org/htc/pytorch:2.3.1-cuda11.8
+
+log = job_$(tag)_$(Cluster)_$(Process).log
+error = job_$(tag)_$(Cluster)_$(Process).err
+output = job_$(tag)_$(Cluster)_$(Process).out
+
+executable = run_train.sh
+arguments = $(data) $(config) $(tag) $(schedule) $(batch_size)
+environment = "EPOCHS=$(epochs) TRAIN_ARGS='$(train_args)'"
+
++JobDurationCategory = "Medium"
+
+gpus_minimum_capability = 7.5
+request_gpus = 1
+
+# Blacklist Notre Dame GPUs, comment out later
+requirements = (GLIDEIN_ResourceName =!= "ND-CAML-GPU-CE1")
+max_retries = 3
+
+request_cpus = 2
+request_memory = 8GB
+request_disk = 50GB
+
+# Variant of submit_train.sub for continuing a run via train.py's --resume (pass --resume as
+# part of train_args): also transfers the existing checkpoint_$(tag).pth in, so --resume finds
+# it, in addition to transferring the (further-updated) one back out afterward. Every row queued
+# through this file must already have a local checkpoint_<tag>.pth present to upload -- e.g. one
+# copied over from a prior Perlmutter/Della run, or produced by an earlier Condor job of this
+# same tag. For a fresh (non-resuming) run, use submit_train.sub instead.
+transfer_input_files = train.py, ../../src, ../../config, osdf:///ospool/uc-shared/project/futurecolliders/rosep8/$(data), checkpoint_$(tag).pth
+transfer_output_files = denoiser_$(tag).pth, history_$(tag).csv, checkpoint_$(tag).pth
+should_transfer_files = YES
+
+queue data,config,tag,schedule,batch_size,epochs,train_args from experiments_resume.txt
