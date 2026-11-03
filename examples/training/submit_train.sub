@@ -13,7 +13,7 @@ arguments = $(data) $(config) $(tag) $(schedule) $(batch_size)
 # Condor's own environment syntax does the equivalent: single-quote a value to keep its spaces.
 environment = "EPOCHS=$(epochs) TRAIN_ARGS='$(train_args)'"
 
-+JobDurationCategory = "Medium"
++JobDurationCategory = "Long"
 
 gpus_minimum_capability = 7.5
 request_gpus = 1
@@ -23,7 +23,7 @@ requirements = (GLIDEIN_ResourceName =!= "ND-CAML-GPU-CE1")
 max_retries = 3
 
 request_cpus = 2
-request_memory = 8GB
+request_memory = 64GB
 request_disk = 50GB
 
 transfer_input_files = train.py, ../../src, ../../config, osdf:///ospool/uc-shared/project/futurecolliders/rosep8/$(data)
