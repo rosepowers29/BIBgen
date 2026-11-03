@@ -1,0 +1,3 @@
+diffused_cyl_phipi4_large_logE.hdf5,sweep/gaussian_phi4_s4_z0p0625.json,gaussian_phi4_s4_z0p0625,noise_schedule.csv,simple
+diffused_cyl_phipi4_large_logE.hdf5,sweep/gaussian_phi4_s4_z0p125.json,gaussian_phi4_s4_z0p125,noise_schedule.csv,simple
+diffused_cyl_phipi4_large_logE.hdf5,sweep/gaussian_phi4_s4_z0p25.json,gaussian_phi4_s4_z0p25,noise_schedule.csv,simple
