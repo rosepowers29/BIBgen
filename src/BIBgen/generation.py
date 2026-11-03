@@ -1,6 +1,8 @@
 import torch
 from torch import nn
 
+from BIBgen.features import N_SCALAR_FEATURES
+
 def generate_sphered(
     model : nn.Module,
     n_members : int,
@@ -32,7 +34,7 @@ def generate_sphered(
     Returns
     -------
     event : torch.Tensor
-        The generated event with shape (n_members, 4)
+        The generated event with shape (n_members, N_SCALAR_FEATURES)
 
     Raises
     ------
@@ -42,7 +44,7 @@ def generate_sphered(
         If variances predicted by model become non-finite
     """
     model = model.to(device)
-    current_event = torch.normal(mean=0, std=1, size=(n_members, 4), device=device)
+    current_event = torch.normal(mean=0, std=1, size=(n_members, N_SCALAR_FEATURES), device=device)
     if verbosity >= 1:
         print("White noise:", current_event[:10])
 

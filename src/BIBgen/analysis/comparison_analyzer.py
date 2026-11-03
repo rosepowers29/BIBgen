@@ -22,6 +22,7 @@ class ComparisonAnalyzer:
         eta_range : tuple,
         s_range : tuple,
         z_range : tuple,
+        time_range : Optional[tuple] = None,
         output_dir : str = "histograms"
     ):
         self.energy_range = energy_range
@@ -29,6 +30,7 @@ class ComparisonAnalyzer:
         self.eta_range = eta_range
         self.s_range = s_range
         self.z_range = z_range
+        self.time_range = time_range
 
         self.data = {}
         self.aggr_data = {}
@@ -47,19 +49,19 @@ class ComparisonAnalyzer:
         Load data from training_data.hdf5 format.
         
         Expected structure:
-            file.h5/training/evt_0  [n_hits, 4]  where features are [E, phi, s, z]
+            file.h5/training/evt_0  [n_hits, 4 or 5]  where features are [E, phi, s, z] or [E, phi, s, z, time]
             file.h5/validation/evt_0
             file.h5/test/evt_0
-        
+
         Args:
             filepath: Path to HDF5 file
             event_ids: List of event IDs to load (None loads all)
-                      
+
         Returns:
-            Dictionary with arrays: energy, phi, s, z, eta
+            Dictionary with arrays: energy, phi, s, z, eta, and time (only if present in the data)
         """
-        all_energy, all_phi, all_s, all_z = [], [], [], []
-        
+        all_energy, all_phi, all_s, all_z, all_time = [], [], [], [], []
+
         with h5py.File(filepath, 'r') as f:
             if event_ids is None:
                 events_to_load = []
@@ -68,7 +70,7 @@ class ComparisonAnalyzer:
                         events_to_load.extend([f"{group_name}/{evt}" for evt in f[group_name].keys()])
             else:
                 events_to_load = event_ids
-            
+
             for event_path in events_to_load:
                 try:
                     data = f[event_path][:]
@@ -76,16 +78,21 @@ class ComparisonAnalyzer:
                     all_phi.append(data[:, 1])
                     all_s.append(data[:, 2])
                     all_z.append(data[:, 3])
+                    if data.shape[1] >= 5:
+                        all_time.append(data[:, 4])
                 except KeyError:
                     continue
-        
+
         energy = np.concatenate(all_energy)
         phi = np.concatenate(all_phi)
         s = np.concatenate(all_s)
         z = np.concatenate(all_z)
         eta = eta_from_cylindrical(s, z)
-        
-        return {'energy': energy, 'phi': phi, 's': s, 'z': z, 'eta': eta}
+
+        result = {'energy': energy, 'phi': phi, 's': s, 'z': z, 'eta': eta}
+        if all_time:
+            result['time'] = np.concatenate(all_time)
+        return result
     
     def load_from_raw_hdf5(self, filepath: str, event_ids: List[str] = None, 
                            collections: List[str] = None) -> Dict[str, np.ndarray]:
@@ -98,57 +105,62 @@ class ComparisonAnalyzer:
             collections: List of collection paths (defaults to ECal collections)
                         
         Returns:
-            Dictionary with arrays: energy, phi, s, z, eta
+            Dictionary with arrays: energy, phi, s, z, eta, and time (only if hit_times is present)
         """
         if collections is None:
             collections = [
                 'ECalColls/ECalBarrelCollection',
                 'ECalColls/ECalEndcapCollection'
             ]
-        
-        all_energy, all_x, all_y, all_z = [], [], [], []
-        
+
+        all_energy, all_x, all_y, all_z, all_time = [], [], [], [], []
+
         with h5py.File(filepath, 'r') as f:
             if event_ids is None:
                 event_ids = [k for k in f.keys() if k.startswith('evt_')]
-            
+
             for evt_id in event_ids:
                 if evt_id not in f:
                     continue
-                    
+
                 for coll_path in collections:
                     full_path = f"{evt_id}/{coll_path}"
                     if full_path not in f:
                         continue
-                    
+
                     coll = f[full_path]
-                    
+
                     if 'hit_energy' in coll:
                         energy = coll['hit_energy'][:]
                     elif 'hit_e_dep' in coll:
                         energy = coll['hit_e_dep'][:]
                     else:
                         continue
-                    
+
                     x = coll['hit_x_pos'][:]
                     y = coll['hit_y_pos'][:]
                     z = coll['hit_z_pos'][:]
-                    
+
                     all_energy.append(energy)
                     all_x.append(x)
                     all_y.append(y)
                     all_z.append(z)
-        
+                    if 'hit_times' in coll:
+                        all_time.append(coll['hit_times'][:])
+
         energy = np.concatenate(all_energy)
         x = np.concatenate(all_x)
         y = np.concatenate(all_y)
         z = np.concatenate(all_z)
-        
+
         phi = np.arctan2(y, x)
         s = np.sqrt(x**2 + y**2)
         eta = eta_from_cylindrical(s, z)
-        
-        return {'energy': energy, 'phi': phi, 's': s, 'z': z, 'eta': eta}
+
+        result = {'energy': energy, 'phi': phi, 's': s, 'z': z, 'eta': eta}
+        if all_time:
+            result['time'] = np.concatenate(all_time)
+        return result
     
     def load_from_dict(self, name : str, events : dict, 
                                is_sphered: bool = True,
@@ -159,16 +171,16 @@ class ComparisonAnalyzer:
         
         Args:
             name: Key the dataset is registered under, also used as the plot legend label
-            events: Mapping of event ID to array of shape (n_hits, 4) containing [E, phi, s, z]
+            events: Mapping of event ID to array of shape (n_hits, 4 or 5) containing [E, phi, s, z] or [E, phi, s, z, time]
             is_sphered: Whether data is normalized
             sphering: Sphering object for unnormalization (required if is_sphered=True)
             exponentiate_energy: Whether the energy feature is ln(E) and must be exponentiated
-                     
+
         Returns:
-            Dictionary with arrays: energy, phi, s, z, eta
+            Dictionary with arrays: energy, phi, s, z, eta, and time (only if present in the data)
         """
         events_processed = {}
-        aggr_processed = {'energy': [], 'phi': [], 's': [], 'z': [], 'eta': []}
+        aggr_processed = {'energy': [], 'phi': [], 's': [], 'z': [], 'eta': [], 'time': []}
         for event_id in events:
             if is_sphered:
                 if sphering is None:
@@ -176,7 +188,7 @@ class ComparisonAnalyzer:
                 data = sphering.untransform(events[event_id])
             else:
                 data = events[event_id]
-            
+
             energy = data[:, 0]
             if exponentiate_energy:
                 energy = np.exp(energy)
@@ -186,11 +198,13 @@ class ComparisonAnalyzer:
             eta = eta_from_cylindrical(s, z)
 
             events_processed[event_id] = {'energy': energy, 'phi': phi, 's': s, 'z': z, 'eta': eta}
+            if data.shape[1] >= 5:
+                events_processed[event_id]['time'] = data[:, 4]
             for var in events_processed[event_id]:
                 aggr_processed[var].append(events_processed[event_id][var])
-            
+
         self.data[name] = events_processed
-        self.aggr_data[name] = {var : np.concatenate(aggr_processed[var], axis=0)for var in aggr_processed}
+        self.aggr_data[name] = {var : np.concatenate(aggr_processed[var], axis=0) for var in aggr_processed if aggr_processed[var]}
         return self.aggr_data[name]
 
     def load_hits(self, name : str, hits : Dict[str, np.ndarray], event_id : str = "evt_0"):
@@ -239,9 +253,11 @@ class ComparisonAnalyzer:
                                prefix: str = "bib",
                                bins: int = 100):
         """Generate histograms for basic observables."""
-        fig, axes = plt.subplots(2, 3, figsize=(18, 10))
+        has_time = 'time' in hits and self.time_range is not None
+        ncols = 4 if has_time else 3
+        fig, axes = plt.subplots(2, ncols, figsize=(6 * ncols, 10))
         fig.suptitle('BIB Detector Hit Observables', fontsize=16, fontweight='bold')
-        
+
         # Energy
         ax = axes[0, 0]
         ax.hist(hits['energy'], bins=bins, edgecolor='black', alpha=0.7, color='steelblue')
@@ -250,7 +266,7 @@ class ComparisonAnalyzer:
         ax.set_title('Energy Distribution', fontsize=13, fontweight='bold')
         ax.set_yscale('log')
         ax.grid(True, alpha=0.3)
-        
+
         # Phi
         ax = axes[0, 1]
         ax.hist(hits['phi'], bins=bins, edgecolor='black', alpha=0.7, color='coral')
@@ -259,7 +275,7 @@ class ComparisonAnalyzer:
         ax.set_title('φ Distribution', fontsize=13, fontweight='bold')
         ax.set_xlim(-np.pi, np.pi)
         ax.grid(True, alpha=0.3)
-        
+
         # Eta
         ax = axes[0, 2]
         ax.hist(hits['eta'], bins=bins, edgecolor='black', alpha=0.7, color='mediumseagreen')
@@ -267,7 +283,16 @@ class ComparisonAnalyzer:
         ax.set_ylabel('Hits', fontsize=12)
         ax.set_title('η Distribution', fontsize=13, fontweight='bold')
         ax.grid(True, alpha=0.3)
-        
+
+        # Time
+        if has_time:
+            ax = axes[0, 3]
+            ax.hist(hits['time'], bins=bins, range=self.time_range, edgecolor='black', alpha=0.7, color='indianred')
+            ax.set_xlabel('Time [ns]', fontsize=12)
+            ax.set_ylabel('Hits', fontsize=12)
+            ax.set_title('Time Distribution', fontsize=13, fontweight='bold')
+            ax.grid(True, alpha=0.3)
+
         # Radial
         ax = axes[1, 0]
         ax.hist(hits['s'], bins=bins, edgecolor='black', alpha=0.7, color='mediumpurple')
@@ -276,7 +301,7 @@ class ComparisonAnalyzer:
         ax.set_title('Radial Distribution', fontsize=13, fontweight='bold')
         ax.set_yscale('log')
         ax.grid(True, alpha=0.3)
-        
+
         # Z position
         ax = axes[1, 1]
         ax.hist(hits['z'], bins=bins, edgecolor='black', alpha=0.7, color='gold')
@@ -284,9 +309,12 @@ class ComparisonAnalyzer:
         ax.set_ylabel('Hits', fontsize=12)
         ax.set_title('Z Distribution', fontsize=13, fontweight='bold')
         ax.grid(True, alpha=0.3)
-        
+
+        if has_time:
+            axes[1, 2].axis('off')
+
         # Statistics
-        ax = axes[1, 2]
+        ax = axes[1, 3] if has_time else axes[1, 2]
         ax.axis('off')
         stats_text = f"""
         Total Hits: {len(hits['energy']):,}
@@ -410,10 +438,12 @@ class ComparisonAnalyzer:
         """Plot MC and generated data overlayed on same axes."""
         mc_hits = self.aggr_data[name1]
         gen_hits = self.aggr_data[name2]
-        
-        fig, axes = plt.subplots(2, 3, figsize=(18, 12))
+
+        has_time = 'time' in mc_hits and 'time' in gen_hits and self.time_range is not None
+        ncols = 4 if has_time else 3
+        fig, axes = plt.subplots(2, ncols, figsize=(6 * ncols, 12))
         fig.suptitle('MC vs Generated', fontsize=16, fontweight='bold')
-        
+
         # Energy
         axes[0, 0].hist(mc_hits['energy'], bins=bins, histtype='step', linewidth=2, 
                        label='MC', color='blue', alpha=0.7, density=normalized, range=self.energy_range)
@@ -451,7 +481,20 @@ class ComparisonAnalyzer:
         axes[0, 2].set_xlim(*self.eta_range)
         axes[0, 2].legend()
         axes[0, 2].grid(True, alpha=0.3)
-        
+
+        # Time
+        if has_time:
+            axes[0, 3].hist(mc_hits['time'], bins=bins, histtype='step', linewidth=2,
+                           label='MC', color='blue', alpha=0.7, density=normalized, range=self.time_range)
+            axes[0, 3].hist(gen_hits['time'], bins=bins, histtype='step', linewidth=2,
+                           label='Generated', color='red', alpha=0.7, density=normalized, range=self.time_range)
+            axes[0, 3].set_xlabel('Time [ns]', fontsize=12)
+            axes[0, 3].set_ylabel('Counts', fontsize=12)
+            axes[0, 3].set_title('Time', fontsize=13, fontweight='bold')
+            axes[0, 3].set_xlim(*self.time_range)
+            axes[0, 3].legend()
+            axes[0, 3].grid(True, alpha=0.3)
+
         # Radial
         axes[1, 0].hist(mc_hits['s'], bins=bins, histtype='step', linewidth=2,
                        label='MC', color='blue', alpha=0.7, density=normalized, range=self.s_range)
@@ -482,9 +525,13 @@ class ComparisonAnalyzer:
             axes[0, 2].set_yscale('log')
             axes[1, 0].set_yscale('log')
             axes[1, 1].set_yscale('log')
-        
+
+        if has_time:
+            axes[1, 2].axis('off')
+
         # Stats
-        axes[1, 2].axis('off')
+        stats_ax = axes[1, 3] if has_time else axes[1, 2]
+        stats_ax.axis('off')
         stats = f"""
         MC vs Generated
         ───────────────
@@ -501,9 +548,9 @@ class ComparisonAnalyzer:
           MC:  [{np.min(eta_mc):.2f}, {np.max(eta_mc):.2f}]
           Gen: [{np.min(eta_gen):.2f}, {np.max(eta_gen):.2f}]
         """
-        axes[1, 2].text(0.1, 0.5, stats, fontsize=10, verticalalignment='center',
+        stats_ax.text(0.1, 0.5, stats, fontsize=10, verticalalignment='center',
                        family='monospace', bbox=dict(boxstyle='round', facecolor='wheat', alpha=0.3))
-        
+
         plt.tight_layout()
         plt.savefig(self.output_dir / f"{prefix}_overlay.png", dpi=300, bbox_inches='tight')
         plt.close()
@@ -516,17 +563,20 @@ class ComparisonAnalyzer:
                                 normalized : bool = False,
                                 log_scale : bool = True):
         """
-        Same five variables as plot_kinematics_1d (energy, phi, eta, s, z),
-        but adds a residual panel (Gen - MC, per bin) beneath each histogram,
-        sharing the same x-axis and bin edges as the panel above it.
+        Same variables as plot_kinematics_1d (energy, phi, eta, s, z, and time
+        when present in both datasets and self.time_range is set), but adds a
+        residual panel (Gen - MC, per bin) beneath each histogram, sharing the
+        same x-axis and bin edges as the panel above it.
         """
         import matplotlib.gridspec as gridspec
 
         mc_hits = self.aggr_data[name1]
         gen_hits = self.aggr_data[name2]
 
-        fig = plt.figure(figsize=(18, 13))
-        gs = gridspec.GridSpec(4, 3, height_ratios=[3, 1, 3, 1], hspace=0.5, wspace=0.3)
+        has_time = 'time' in mc_hits and 'time' in gen_hits and self.time_range is not None
+        ncols = 4 if has_time else 3
+        fig = plt.figure(figsize=(6 * ncols, 13))
+        gs = gridspec.GridSpec(4, ncols, height_ratios=[3, 1, 3, 1], hspace=0.5, wspace=0.3)
         fig.suptitle('MC vs Generated (with residuals)', fontsize=16, fontweight='bold')
 
         # (row of main panel, col, data key, xlabel, title, xlim, log-scale this panel)
@@ -537,6 +587,8 @@ class ComparisonAnalyzer:
             (2, 0, 's',      's [mm]',       'Radial',     self.s_range,      True),
             (2, 1, 'z',      'z [mm]',       'Z Position', self.z_range,      False),
         ]
+        if has_time:
+            panel_specs.append((0, 3, 'time', 'Time [ns]', 'Time', self.time_range, False))
 
         for row0, col, key, xlabel, title, xlim, panel_log in panel_specs:
             ax_main = fig.add_subplot(gs[row0, col])

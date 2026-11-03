@@ -47,14 +47,14 @@ class DiffusedPairDataset(Dataset):
 
     def __getitem__(self, idx):
         """
-        Retrieves a single timestep and the timestep before it from the event dataset. Datasets have shape (101, N, 4), with 101 timesteps.
-        __getitem__ retrieves the 4 components of each of N hits in self.evt at time step idx and idx-1.
+        Retrieves a single timestep and the timestep before it from the event dataset. Datasets have shape (101, N, N_SCALAR_FEATURES), with 101 timesteps.
+        __getitem__ retrieves the N_SCALAR_FEATURES components of each of N hits in self.evt at time step idx and idx-1.
 
         Arguments:
             idx(int): The timestep we want, integer between 1 and 100
 
         Returns:
-            current_tensor, previous_tensor: (pytorch tensors in form of pair of 2d arrays of shape (N, 4)): The 4 components for each of the N hits at time step idx, idx-1.     
+            current_tensor, previous_tensor: (pytorch tensors in form of pair of 2d arrays of shape (N, N_SCALAR_FEATURES)): The components for each of the N hits at time step idx, idx-1.
         """
         with h5py.File(self.diffused_data_path, 'r') as file:
             group = file[self.group]

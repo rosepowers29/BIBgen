@@ -3,6 +3,7 @@ import numpy as np
 import torch
 
 from BIBgen.models import *
+from BIBgen.features import N_SCALAR_FEATURES
 
 def test_FourierEncoding():
     frequencies = torch.rand(8)
@@ -60,9 +61,9 @@ def test_EquivariantDenoiser():
     )
 
     tau = torch.tensor(12)
-    input_set = torch.rand((24, 4))
+    input_set = torch.rand((24, N_SCALAR_FEATURES))
     output_set = model(input_set, tau=tau).detach()
-    assert output_set.size() == torch.Size((24, 4))
+    assert output_set.size() == torch.Size((24, N_SCALAR_FEATURES))
 
     transpose_idx = torch.randperm(24)
     transposed_output_set = model(input_set[transpose_idx], tau).detach()
@@ -78,9 +79,9 @@ def test_EquivariantDenoiser_batched():
     )
 
     tau = torch.tensor([12, 13, 14, 15, 16])
-    input_set = torch.rand((5, 24, 4))
+    input_set = torch.rand((5, 24, N_SCALAR_FEATURES))
     output_set = model(input_set, tau=tau).detach()
-    assert output_set.size() == torch.Size((5, 24, 4))
+    assert output_set.size() == torch.Size((5, 24, N_SCALAR_FEATURES))
 
     expected_output = torch.stack([model(x, tau=t) for x, t in zip(input_set, tau)]).detach()
     assert output_set.numpy() == pytest.approx(expected_output.numpy(), abs=1e-6)
@@ -96,10 +97,10 @@ def test_EquivariantDenoiser_predict_variances():
     )
 
     tau = torch.tensor(12)
-    input_set = torch.rand((24, 4))
+    input_set = torch.rand((24, N_SCALAR_FEATURES))
     mu, var = model(input_set, tau=tau)
-    assert mu.size() == torch.Size((24, 4))
-    assert var.size() == torch.Size((24, 4))
+    assert mu.size() == torch.Size((24, N_SCALAR_FEATURES))
+    assert var.size() == torch.Size((24, N_SCALAR_FEATURES))
     assert (var.detach() >= 0).all()
 
 def test_EquivariantDenoiser_predict_variances_batched():
@@ -113,8 +114,8 @@ def test_EquivariantDenoiser_predict_variances_batched():
     )
 
     tau = torch.tensor([12, 13, 14, 15, 16])
-    input_set = torch.rand((5, 24, 4))
+    input_set = torch.rand((5, 24, N_SCALAR_FEATURES))
     mu, var = model(input_set, tau=tau)
-    assert mu.size() == torch.Size((5, 24, 4))
-    assert var.size() == torch.Size((5, 24, 4))
+    assert mu.size() == torch.Size((5, 24, N_SCALAR_FEATURES))
+    assert var.size() == torch.Size((5, 24, N_SCALAR_FEATURES))
     assert (var.detach() >= 0).all()

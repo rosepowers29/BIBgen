@@ -111,6 +111,7 @@ def test_DecoupledGaussianNLLLoss_zero_weight_zeroes_variance_grad():
 def test_DecoupledGaussianNLLLoss_through_equivariant_denoiser():
     """Integration check: decoupled loss produces finite gradients through the real shared-trunk architecture."""
     from BIBgen.models import EquivariantDenoiser
+    from BIBgen.features import N_SCALAR_FEATURES
 
     model = EquivariantDenoiser(
         n_timesteps=25,
@@ -122,8 +123,8 @@ def test_DecoupledGaussianNLLLoss_through_equivariant_denoiser():
     )
 
     tau = torch.tensor(12)
-    input_set = torch.rand((24, 4))
-    actual = torch.rand((24, 4))
+    input_set = torch.rand((24, N_SCALAR_FEATURES))
+    actual = torch.rand((24, N_SCALAR_FEATURES))
 
     mu, variance = model(input_set, tau=tau)
     loss = DecoupledGaussianNLLLoss()(mu, variance, actual)

@@ -4,6 +4,7 @@ import torch
 from torch import nn
 
 from BIBgen.models import common
+from BIBgen.features import N_SCALAR_FEATURES
 
 class EquivariantLayer(nn.Module):
     def __init__(self, input_size : int, output_size : int, initialize_zero : bool = False):
@@ -118,7 +119,7 @@ class EquivariantDenoiser(nn.Module):
             pos_size = 0
 
         self.tau_encoding = common.FourierEncoding(tau_encoding_dimension)
-        encoding_size = tau_encoding_dimension + 4 + 1 + pos_size
+        encoding_size = tau_encoding_dimension + N_SCALAR_FEATURES + 1 + pos_size
 
         equivariant_layers = [
             ("hidden0", self.get_layer(encoding_size, hidden_layer_size)),
@@ -131,7 +132,7 @@ class EquivariantDenoiser(nn.Module):
             ]
 
         self.predict_variances = predict_variances
-        output_size = 4 * 2 if self.predict_variances else 4
+        output_size = N_SCALAR_FEATURES * 2 if self.predict_variances else N_SCALAR_FEATURES
         equivariant_layers.append(("prediction_output", self.get_layer(hidden_layer_size, output_size, initialize_zero=True)))
 
         self.prediction_tower = nn.Sequential(OrderedDict(equivariant_layers))
@@ -144,7 +145,7 @@ class EquivariantDenoiser(nn.Module):
 
         nhits_feature = torch.log(input_set.new_full((*input_set.shape[:-1], 1), nhits / self.nhits_norm + 1))
 
-        features = [tau_encoded, input_set[...,0:4], nhits_feature]
+        features = [tau_encoded, input_set[...,0:N_SCALAR_FEATURES], nhits_feature]
         if self.use_position_encoding:
             pos1_encoded = self.pos1_encoding(input_set[...,1])
             pos2_encoded = self.pos2_encoding(input_set[...,2])
@@ -155,8 +156,8 @@ class EquivariantDenoiser(nn.Module):
         out = self.prediction_tower(encoded_set)
 
         if self.predict_variances:
-            delta = out[...,:4]
-            variances = torch.nn.functional.softplus(out[..., 4:])
+            delta = out[...,:N_SCALAR_FEATURES]
+            variances = torch.nn.functional.softplus(out[..., N_SCALAR_FEATURES:])
             return input_set + delta, variances
 
         return input_set + out

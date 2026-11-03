@@ -4,7 +4,7 @@ diffusion timestep tau, without needing real data or running full generation.
 
 Feeds synthetic inputs across ALL tau so that any tau-dependence observed is attributable
 to the model's own tau-conditioning, not to a confound of also varying input realism.
-Each of the 4 feature channels is given a DISTINCT scale/offset (FEATURE_SCALES/OFFSETS
+Each feature channel is given a DISTINCT scale/offset (FEATURE_SCALES/OFFSETS
 below) rather than i.i.d. standard normal identically across channels -- feeding
 statistically-identical input to every channel gives even a correctly-learning,
 genuinely feature-sensitive variance head no basis to differentiate its output across
@@ -25,12 +25,13 @@ matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 
 from BIBgen.training import load_empty_model
+from BIBgen.features import N_SCALAR_FEATURES
 
-FEATURE_NAMES = ("energy", "phi", "s", "z")
+FEATURE_NAMES = ("energy", "phi", "s", "z", "time")
 # Deliberately different per-feature scale/offset -- arbitrary but clearly distinguishable,
 # so a genuinely feature-sensitive model has something to actually respond to.
-FEATURE_SCALES = torch.tensor([1.0, 2.0, 0.5, 3.0])
-FEATURE_OFFSETS = torch.tensor([0.0, 1.0, -1.0, 2.0])
+FEATURE_SCALES = torch.tensor([1.0, 2.0, 0.5, 3.0, 1.5])
+FEATURE_OFFSETS = torch.tensor([0.0, 1.0, -1.0, 2.0, -0.5])
 
 def main(args):
     model_path = args.model_path
@@ -54,13 +55,13 @@ def main(args):
         raise ValueError(f"{model_path} was not trained with predict_variances=True -- nothing to inspect")
 
     taus = torch.arange(n_timesteps)
-    mean_var = np.zeros((n_timesteps, 4))
-    std_var = np.zeros((n_timesteps, 4))
-    max_var = np.zeros((n_timesteps, 4))
+    mean_var = np.zeros((n_timesteps, N_SCALAR_FEATURES))
+    std_var = np.zeros((n_timesteps, N_SCALAR_FEATURES))
+    max_var = np.zeros((n_timesteps, N_SCALAR_FEATURES))
 
     with torch.no_grad():
         for i, tau in enumerate(taus):
-            x = torch.randn(args.n_samples, args.n_hits, 4) * FEATURE_SCALES + FEATURE_OFFSETS
+            x = torch.randn(args.n_samples, args.n_hits, N_SCALAR_FEATURES) * FEATURE_SCALES + FEATURE_OFFSETS
             tau_batched = torch.full((args.n_samples,), int(tau), dtype=torch.long)
             _, var = model(x, tau_batched)
             var = var.numpy()
@@ -92,7 +93,7 @@ def main(args):
         writer.writerow(["tau"] + [f"{n}_{stat}" for n in FEATURE_NAMES for stat in ("mean", "std", "max")])
         for i, tau in enumerate(taus.tolist()):
             row = [tau]
-            for j in range(4):
+            for j in range(N_SCALAR_FEATURES):
                 row += [mean_var[i, j], std_var[i, j], max_var[i, j]]
             writer.writerow(row)
     print(f"Wrote {csv_path}")

@@ -11,6 +11,7 @@ def build_unsphered(event_id, gather, use_cylindrical, min_phi, max_phi, log_ene
     x_raw = gather(event_id, "hit_x_pos")
     y_raw = gather(event_id, "hit_y_pos")
     z_raw = gather(event_id, "hit_z_pos")
+    t_raw = gather(event_id, "hit_times")
 
     if log_energy:
         e_raw = np.log(e_raw)
@@ -18,8 +19,8 @@ def build_unsphered(event_id, gather, use_cylindrical, min_phi, max_phi, log_ene
     if use_cylindrical:
         phi_raw = np.arctan2(y_raw, x_raw)
         s_raw = np.sqrt(x_raw**2 + y_raw**2)
-        return np.stack([e_raw, phi_raw, s_raw, z_raw], axis=-1)[(phi_raw <= max_phi) & (phi_raw >= min_phi)]
-    return np.stack([e_raw, x_raw, y_raw, z_raw], axis=-1)
+        return np.stack([e_raw, phi_raw, s_raw, z_raw, t_raw], axis=-1)[(phi_raw <= max_phi) & (phi_raw >= min_phi)]
+    return np.stack([e_raw, x_raw, y_raw, z_raw, t_raw], axis=-1)
 
 def main(args):
     mm_path = args.mm_path

@@ -18,6 +18,8 @@ var_range = {
     "z_range" : (-2800, 2800),
 }
 
+var_range_with_time = {**var_range, "time_range": (0, 15000)}
+
 def make_hits(n_hits, rng):
     """Sample hits that land inside var_range, so the 2D histograms are not empty."""
     s = rng.uniform(1850, 2200, n_hits)
@@ -39,6 +41,19 @@ def make_events(n_events, n_hits, rng):
             rng.uniform(-1.0, 1.0, n_hits),
             rng.uniform(1850, 2200, n_hits),
             rng.uniform(-2500, 2500, n_hits),
+        ])
+        for i in range(n_events)
+    }
+
+def make_events_with_time(n_events, n_hits, rng):
+    """Model-output style events: arrays of shape (n_hits, 5) holding [E, phi, s, z, time]."""
+    return {
+        f"evt_{i}": np.column_stack([
+            rng.exponential(0.001, n_hits),
+            rng.uniform(-1.0, 1.0, n_hits),
+            rng.uniform(1850, 2200, n_hits),
+            rng.uniform(-2500, 2500, n_hits),
+            rng.uniform(0, 15000, n_hits),
         ])
         for i in range(n_events)
     }
@@ -193,6 +208,35 @@ class TestComparisonAnalyzer:
         # Registered under the given name, both per-event and aggregated
         assert set(analyzer.data["MC"].keys()) == set(events.keys())
         assert analyzer.aggregated_data()["MC"] is analyzer.aggr_data["MC"]
+
+    def test_load_from_dict_includes_time_when_present(self, rng):
+        """A 5th (time) column in the events gets picked up when time_range is set."""
+        analyzer = ComparisonAnalyzer(**var_range_with_time)
+
+        n_hits = 50
+        events = make_events_with_time(2, n_hits, rng)
+        hits = analyzer.load_from_dict("MC", events, is_sphered=False)
+
+        assert 'time' in hits
+        assert len(hits['time']) == 2 * n_hits
+
+    def test_load_from_dict_omits_time_when_absent(self, rng):
+        """4-column (no time) events still load fine, with no 'time' key."""
+        analyzer = ComparisonAnalyzer(**var_range)
+
+        hits = analyzer.load_from_dict("MC", make_events(2, 50, rng), is_sphered=False)
+
+        assert 'time' not in hits
+
+    def test_plot_kinematics_1d_with_time(self, temp_dir, rng):
+        """plot_kinematics_1d renders a time panel when both datasets carry it."""
+        analyzer = ComparisonAnalyzer(**var_range_with_time, output_dir=temp_dir)
+        analyzer.load_from_dict("MC", make_events_with_time(2, 50, rng), is_sphered=False)
+        analyzer.load_from_dict("Generated", make_events_with_time(2, 50, rng), is_sphered=False)
+
+        analyzer.plot_kinematics_1d("MC", "Generated", prefix="test_time")
+
+        assert (Path(temp_dir) / "test_time_overlay.png").exists()
 
     def test_load_from_dict_requires_sphering(self, rng):
         """Sphered data without a sphering object is an error."""

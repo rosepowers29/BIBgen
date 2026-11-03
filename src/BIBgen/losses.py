@@ -14,8 +14,8 @@ class GaussianNLLLoss(nn.Module):
     NLL loss assuming diagonal covariance.
     
     The model predicts:
-        - mu: mean of each hit (N, 4)
-        - variance: uncertainty in each component (N, 4)
+        - mu: mean of each hit (N, N_SCALAR_FEATURES)
+        - variance: uncertainty in each component (N, N_SCALAR_FEATURES)
     
     Loss is computed as -log P(actual | mu, variance) where P is Gaussian.
     """
@@ -27,9 +27,9 @@ class GaussianNLLLoss(nn.Module):
     def forward(self, mu, variance, actual):
         """
         Args:
-            mu: predicted means (N, 4)
-            variance: predicted variances (N, 4) 
-            actual: ground truth (N, 4)
+            mu: predicted means (N, N_SCALAR_FEATURES)
+            variance: predicted variances (N, N_SCALAR_FEATURES)
+            actual: ground truth (N, N_SCALAR_FEATURES)
         
         Returns:
             mean loss over the batch

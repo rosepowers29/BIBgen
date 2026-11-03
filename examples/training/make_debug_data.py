@@ -9,6 +9,8 @@ Run this from examples/training/ so debug_diffused.hdf5 lands next to submit_deb
 import h5py
 import numpy as np
 
+from BIBgen.features import N_SCALAR_FEATURES
+
 NTAU = 10
 NHITS = 10
 NEVENTS = 2
@@ -18,7 +20,7 @@ def main():
         for split in ("training", "validation"):
             group = fout.create_group(split)
             for event_no in range(NEVENTS):
-                pseudodata = np.random.rand(NTAU + 1, NHITS, 4).astype(np.float32)
+                pseudodata = np.random.rand(NTAU + 1, NHITS, N_SCALAR_FEATURES).astype(np.float32)
                 group.create_dataset("evt_{}".format(event_no), data=pseudodata)
 
     print("Wrote debug_diffused.hdf5 ({} events x {} timesteps x {} hits)".format(NEVENTS, NTAU, NHITS))

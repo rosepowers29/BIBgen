@@ -10,7 +10,7 @@ from scipy.stats import wasserstein_distance
 from BIBgen.preprocessing import Sphering
 from BIBgen.analysis import ComparisonAnalyzer
 
-WASSERSTEIN_VARIABLES = ("energy", "phi", "eta", "s", "z")
+WASSERSTEIN_VARIABLES = ("energy", "phi", "eta", "s", "z", "time")
 
 def infer_tag(genpath):
     stem = os.path.splitext(os.path.basename(genpath))[0]
@@ -24,8 +24,9 @@ def write_wasserstein_distances(analyzer, reference_name, tags, outdir):
     for a cross-experiment comparison.
     """
     mc_vars = analyzer.aggr_data[reference_name]
+    variables = [v for v in WASSERSTEIN_VARIABLES if v in mc_vars]
     distances = {
-        name : {k: wasserstein_distance(mc_vars[k], analyzer.aggr_data[name][k]) for k in WASSERSTEIN_VARIABLES}
+        name : {k: wasserstein_distance(mc_vars[k], analyzer.aggr_data[name][k]) for k in variables}
         for name in tags
     }
 
@@ -93,6 +94,7 @@ def main(args):
         eta_range = (-1.3, 1.3),
         s_range = (1800, 2250),
         z_range = (-2800, 2800),
+        time_range = (0, 15000),
         output_dir = outpath
     )
     analyzer.load_from_dict("MC", mcdata, is_sphered=False, exponentiate_energy=log_energy)

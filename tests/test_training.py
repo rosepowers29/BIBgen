@@ -7,6 +7,7 @@ import numpy as np
 from BIBgen.training import *
 from BIBgen.losses import *
 from BIBgen.models import *
+from BIBgen.features import N_SCALAR_FEATURES
 
 def create_dummy_dataset(nevents : int, ntau : int, random : bool = True):
     dummy_fname = "_dummy_file.hdf5"
@@ -14,7 +15,7 @@ def create_dummy_dataset(nevents : int, ntau : int, random : bool = True):
     with h5py.File(dummy_fname, "w") as fout:
         train_group = fout.create_group("training")
         for event_no in range(nevents):
-            pseudodata = np.random.rand(ntau + 1, 10, 4) if random else np.array([np.ones((10, 4)) * t for t in range(ntau + 1)])
+            pseudodata = np.random.rand(ntau + 1, 10, N_SCALAR_FEATURES) if random else np.array([np.ones((10, N_SCALAR_FEATURES)) * t for t in range(ntau + 1)])
             train_group.create_dataset("evt_{}".format(event_no), data=pseudodata)
 
     schedule = torch.arange(1, ntau + 1) * 1e-3
