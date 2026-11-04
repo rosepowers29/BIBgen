@@ -48,7 +48,10 @@ class GaussianNLLLoss(nn.Module):
         
         # NLL = 0.5 * (log(2pi) + log(variance) + normalized_error)
         loss = 0.5 * (1.8378770664093453 + log_variance + normalized_error)
-        return loss.mean(dim=(1, 2)).sum(dim=0) if loss.dim() > 2 else loss.mean()
+        # Mean over the batch dimension (when present), not sum: a sum would make the loss --
+        # and therefore gradient magnitude -- scale with whatever batch size a given step happens
+        # to use, which varies enormously under BatchedDataLoader's hit_budget mode.
+        return loss.mean(dim=(1, 2)).mean(dim=0) if loss.dim() > 2 else loss.mean()
 
 
 class DecoupledGaussianNLLLoss(nn.Module):

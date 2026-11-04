@@ -20,6 +20,7 @@ def train(
     accumulation_steps : int = 1,
     max_steps_diagnostics : int = 0,
     log_every : int = 0,
+    max_grad_norm : float | None = None,
 ):
     """
     Trains the model for one epoch.
@@ -49,6 +50,11 @@ def train(
         magnitude, so a step can silently take much longer than its neighbors -- this is mainly
         useful for telling "still working on a big event" apart from "actually stuck" when
         watching a run live (e.g. on an interactive node), without flooding a long batch job's log.
+    max_grad_norm : float | None
+        If given, clip each step's (post-accumulation) global gradient norm to this value before
+        the optimizer step. Guards against a single pathological batch (e.g. a numerically rough
+        outlier event, more so under --amp's narrower fp16 range) applying an outsized update
+        that derails training for many subsequent epochs. None (default) disables clipping.
 
     Returns
     -------
@@ -90,21 +96,52 @@ def train(
                     pred = model(X_sub, tau_sub)
                     loss = loss_fn(pred, y_sub, tau_sub)
 
-                # loss_fn reduces with a sum over the batch dimension (see GaussianNLLLoss),
-                # not a mean -- so summing each micro-batch's backward (via repeated .backward()
-                # calls accumulating into .grad) exactly reproduces the full batch's gradient,
-                # with no rescaling needed.
+                # loss_fn reduces with a mean over the batch, so each micro-batch's loss is
+                # already on a per-sample scale regardless of its own size. Dividing by
+                # accumulation_steps before backward (then summing via repeated .backward() calls
+                # accumulating into .grad) reconstructs the gradient of the true full-batch mean,
+                # since the micro-batches are equal-sized: mean of means over equal-size groups
+                # is the overall mean exactly.
                 if scaler is not None:
-                    scaler.scale(loss).backward()
+                    scaler.scale(loss / accumulation_steps).backward()
                 else:
-                    loss.backward()
+                    (loss / accumulation_steps).backward()
+
+            want_grad_norm = max_grad_norm is not None or istep < max_steps_diagnostics
+            if want_grad_norm:
+                if scaler is not None:
+                    # Gradients are still scaled by scaler's factor at this point; measuring or
+                    # clipping against that would compare against values inflated by the
+                    # (dynamic) scale factor rather than the true gradient magnitude.
+                    scaler.unscale_(optimizer)
+                # max_norm=inf is a standard "measure, don't modify" trick when only diagnostics
+                # were requested: clip_coef is always >= 1, so no scaling is ever applied.
+                total_norm = torch.nn.utils.clip_grad_norm_(
+                    model.parameters(), max_grad_norm if max_grad_norm is not None else float("inf")
+                )
+
+            if istep < max_steps_diagnostics:
+                # Previously nested under the no-AMP branch below, so it never printed under
+                # --amp at all (scaler is never None there) -- now runs regardless of AMP, and
+                # p.grad reflects the unscaled gradient either way thanks to the unscale_ above.
+                log_per_layer_grads(model)
+                if want_grad_norm:
+                    norm_value = total_norm.item()
+                    if not np.isfinite(norm_value):
+                        # Expected during AMP's early scale-discovery: GradScaler already
+                        # detected this overflow during unscale_ above (independently of this
+                        # diagnostic) and will skip the optimizer step below and back off its
+                        # scale factor -- not a sign training itself is unstable, unless it keeps
+                        # happening well past the first several steps.
+                        note = " (AMP scale backoff: GradScaler already caught this -- optimizer step skipped, not applied)"
+                    else:
+                        note = f" (clipped to {max_grad_norm})" if max_grad_norm is not None and norm_value > max_grad_norm else ""
+                    print(f"  global grad norm: {norm_value:.3e}{note}")
 
             if scaler is not None:
                 scaler.step(optimizer)
                 scaler.update()
             else:
-                if istep < max_steps_diagnostics:
-                    log_per_layer_grads(model)
                 optimizer.step()
         except torch.cuda.OutOfMemoryError:
             print("Failed step {}, cuda out of memory".format(istep))
@@ -162,15 +199,22 @@ def evaluate(
     Returns
     -------
     test_loss : float
-        Average loss over all validation events
+        Average per-sample loss over all validation events, comparable across runs regardless
+        of --batch-size/--hit-budget (loss_fn returns a mean over its own batch, so step/batch
+        contributions are reweighted by their sample counts before averaging over all of them)
     """
 
     model.eval()
     test_loss = 0
+    total_samples = 0
     with torch.no_grad():
         for istep in range(dataloader.nsteps):
             X, y, tau = next(dataloader)
             X, y, tau = X.to(device), y.to(device), tau.to(device)
+            # BatchedDataLoader batches carry an explicit leading batch dim; UnbatchedDataLoader
+            # yields one sample per step with no such dim (matching GaussianNLLLoss's own
+            # loss.dim() > 2 check for whether it has a batch dim to sum over).
+            total_samples += X.shape[0] if X.dim() > 2 else 1
 
             if log_every and istep % log_every == 0:
                 print(f"[eval] step {istep + 1}/{dataloader.nsteps}: batch_size={X.shape[0]}, nhits={X.shape[-2]}", flush=True)
@@ -194,10 +238,13 @@ def evaluate(
                 else:
                     pred = model(X_sub, tau_sub)
                     micro_loss = loss_fn(pred, y_sub, tau_sub)
-                step_loss += micro_loss.item()
+                # loss_fn returns a mean over its own (micro-)batch, so multiplying back by that
+                # micro-batch's sample count reconstructs its contribution to the step's total
+                # summed loss -- needed to correctly weight micro-batches/steps of different
+                # sizes when averaging over the whole validation set below.
+                n_sub_samples = X_sub.shape[0] if X_sub.dim() > 2 else 1
+                step_loss += micro_loss.item() * n_sub_samples
 
-            # loss_fn sums over the batch dimension (see GaussianNLLLoss), so summing each
-            # micro-batch's loss exactly reproduces the full batch's loss -- no rescaling needed.
             test_loss += step_loss
 
             if not np.isfinite(test_loss):
@@ -214,4 +261,7 @@ def evaluate(
             if device.type == "cuda":
                 torch.cuda.empty_cache()
 
-    return test_loss / dataloader.nsteps
+    # Divide by samples, not steps/batches: test_loss above was reweighted back to per-sample
+    # sums (undoing loss_fn's own per-batch mean), so this reconstructs a true overall per-sample
+    # average comparable across runs that use different --batch-size/--hit-budget settings.
+    return test_loss / total_samples
