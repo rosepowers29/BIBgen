@@ -17,7 +17,9 @@ def train(
     optimizer : torch.optim.Optimizer,
     device : torch.device,
     scaler : torch.amp.GradScaler | None = None,
-    max_steps_diagnostics : int = 0
+    accumulation_steps : int = 1,
+    max_steps_diagnostics : int = 0,
+    log_every : int = 0,
 ):
     """
     Trains the model for one epoch.
@@ -34,13 +36,24 @@ def train(
         Optimizer for gradient descent
     device : torch.device
         device on which to perform, usually torch.device("cuda") or torch.device("cpu")
+    accumulation_steps : int
+        Split each dataloader batch into this many equal micro-batches, backpropagating
+        each separately and only stepping the optimizer once per full batch. Reduces peak
+        activation memory by this factor while keeping the effective batch size (and the
+        resulting gradient) unchanged. The dataloader's batch size must be divisible by it.
     max_steps_diagnostics : int
         Maximum number of steps to print diagnostics
+    log_every : int
+        Print a one-line progress message every this many steps (batch size, hit count, running
+        loss). 0 disables it. Per-event hit counts in this dataset range over two orders of
+        magnitude, so a step can silently take much longer than its neighbors -- this is mainly
+        useful for telling "still working on a big event" apart from "actually stuck" when
+        watching a run live (e.g. on an interactive node), without flooding a long batch job's log.
 
     Returns
     -------
     loss : float
-        Training loss on the final iteration
+        Training loss on the final micro-batch of the final iteration
     """
     # assert scaler is not None or device.type != "cuda"
     model.train()
@@ -48,40 +61,82 @@ def train(
     for istep in range(dataloader.nsteps):
         X, y, tau = next(dataloader)
         X, y, tau = X.to(device), y.to(device), tau.to(device)
+
+        if log_every and istep % log_every == 0:
+            print(f"[train] step {istep + 1}/{dataloader.nsteps}: batch_size={X.shape[0]}, nhits={X.shape[-2]}", flush=True)
+
+        if accumulation_steps > 1 and X.shape[0] % accumulation_steps != 0:
+            raise ValueError("Batch size must be divisible by accumulation_steps")
+        micro_batch_size = X.shape[0] // accumulation_steps if accumulation_steps > 1 else None
+
         optimizer.zero_grad(set_to_none=True)
 
-        # Compute prediction error
-        if scaler is not None:
-            with torch.autocast(device_type='cuda', dtype=torch.float16):
-                pred = model(X, tau)
-                loss = loss_fn(pred, y, tau)
-        else:
-            pred = model(X, tau)
-            loss = loss_fn(pred, y, tau)
-
-        # Backpropagation
         try:
+            for micro_step in range(accumulation_steps):
+                if accumulation_steps == 1:
+                    # Unsliced: also correct for UnbatchedDataLoader, whose X/y/tau have no
+                    # leading batch dimension to slice (tau is a 0-dim scalar tensor there).
+                    X_sub, y_sub, tau_sub = X, y, tau
+                else:
+                    sl = slice(micro_step * micro_batch_size, (micro_step + 1) * micro_batch_size)
+                    X_sub, y_sub, tau_sub = X[sl], y[sl], tau[sl]
+
+                # Compute prediction error
+                if scaler is not None:
+                    with torch.autocast(device_type='cuda', dtype=torch.float16):
+                        pred = model(X_sub, tau_sub)
+                        loss = loss_fn(pred, y_sub, tau_sub)
+                else:
+                    pred = model(X_sub, tau_sub)
+                    loss = loss_fn(pred, y_sub, tau_sub)
+
+                # loss_fn reduces with a sum over the batch dimension (see GaussianNLLLoss),
+                # not a mean -- so summing each micro-batch's backward (via repeated .backward()
+                # calls accumulating into .grad) exactly reproduces the full batch's gradient,
+                # with no rescaling needed.
+                if scaler is not None:
+                    scaler.scale(loss).backward()
+                else:
+                    loss.backward()
+
             if scaler is not None:
-                scaler.scale(loss).backward()
                 scaler.step(optimizer)
                 scaler.update()
             else:
-                loss.backward()
                 if istep < max_steps_diagnostics:
                     log_per_layer_grads(model)
                 optimizer.step()
         except torch.cuda.OutOfMemoryError:
             print("Failed step {}, cuda out of memory".format(istep))
-            print("X.size() : {}, y.size() : {}".format(X.size(), y.size()))
+            print("X.size() : {}, y.size() : {}, accumulation_steps : {}".format(X.size(), y.size(), accumulation_steps))
             if isinstance(pred, tuple):
                 print("pred[0].size() (mu) : {}, pred[1].size() (var) : {}".format(pred[0].size(), pred[1].size()))
             else:
                 print("pred.size() : {}".format(pred.size()))
             raise RuntimeError("Intentional exit")
 
-    return loss.item()
+        last_loss = loss.item()
 
-def evaluate(dataloader : BaseDataLoader, model : torch.nn.Module, loss_fn : Callable, device : torch.device):
+        # Per-event hit counts vary enormously in this dataset (two orders of magnitude), so
+        # consecutive steps request wildly different tensor sizes. The caching allocator doesn't
+        # always reuse a block freed by a small event for a subsequent large event's allocation,
+        # letting reserved memory climb across steps; releasing it back explicitly keeps peak
+        # usage tied to the current step's event rather than the high-water mark of all steps so far.
+        del X, y, tau, pred, loss
+        if device.type == "cuda":
+            torch.cuda.empty_cache()
+
+    return last_loss
+
+def evaluate(
+    dataloader : BaseDataLoader,
+    model : torch.nn.Module,
+    loss_fn : Callable,
+    device : torch.device,
+    use_amp : bool = False,
+    accumulation_steps : int = 1,
+    log_every : int = 0,
+):
     """
     Parameters
     ----------
@@ -93,6 +148,16 @@ def evaluate(dataloader : BaseDataLoader, model : torch.nn.Module, loss_fn : Cal
         loss function to be called directly on model output, i.e. loss_fn(pred, y, tau) instead of loss_fn(mu, std, y)
     device : torch.device
         device on which to perform, usually torch.device("cuda") or torch.device("cpu")
+    use_amp : bool
+        Run the forward pass under torch.autocast(dtype=torch.float16) to reduce GPU memory use
+    accumulation_steps : int
+        Split each dataloader batch into this many equal micro-batches, evaluated one at a
+        time, to reduce peak activation memory. Purely a memory knob -- does not change the
+        returned loss (no gradients are computed here, so there is nothing to accumulate).
+        The dataloader's batch size must be divisible by it.
+    log_every : int
+        Print a one-line progress message every this many steps (batch size, hit count). 0
+        disables it. See the matching parameter on train() for why this exists.
 
     Returns
     -------
@@ -106,8 +171,34 @@ def evaluate(dataloader : BaseDataLoader, model : torch.nn.Module, loss_fn : Cal
         for istep in range(dataloader.nsteps):
             X, y, tau = next(dataloader)
             X, y, tau = X.to(device), y.to(device), tau.to(device)
-            pred = model(X, tau)
-            test_loss += loss_fn(pred, y, tau).item()
+
+            if log_every and istep % log_every == 0:
+                print(f"[eval] step {istep + 1}/{dataloader.nsteps}: batch_size={X.shape[0]}, nhits={X.shape[-2]}", flush=True)
+
+            if accumulation_steps > 1 and X.shape[0] % accumulation_steps != 0:
+                raise ValueError("Batch size must be divisible by accumulation_steps")
+            micro_batch_size = X.shape[0] // accumulation_steps if accumulation_steps > 1 else None
+
+            step_loss = 0.0
+            for micro_step in range(accumulation_steps):
+                if accumulation_steps == 1:
+                    X_sub, y_sub, tau_sub = X, y, tau
+                else:
+                    sl = slice(micro_step * micro_batch_size, (micro_step + 1) * micro_batch_size)
+                    X_sub, y_sub, tau_sub = X[sl], y[sl], tau[sl]
+
+                if use_amp:
+                    with torch.autocast(device_type='cuda', dtype=torch.float16):
+                        pred = model(X_sub, tau_sub)
+                        micro_loss = loss_fn(pred, y_sub, tau_sub)
+                else:
+                    pred = model(X_sub, tau_sub)
+                    micro_loss = loss_fn(pred, y_sub, tau_sub)
+                step_loss += micro_loss.item()
+
+            # loss_fn sums over the batch dimension (see GaussianNLLLoss), so summing each
+            # micro-batch's loss exactly reproduces the full batch's loss -- no rescaling needed.
+            test_loss += step_loss
 
             if not np.isfinite(test_loss):
                 print("test_loss:", test_loss)
@@ -115,5 +206,12 @@ def evaluate(dataloader : BaseDataLoader, model : torch.nn.Module, loss_fn : Cal
                 print("y:", y)
                 print("pred:", pred)
                 raise RuntimeError("Nonfinite test loss")
+
+            # See the matching comment in train(): per-event hit counts vary by two orders of
+            # magnitude in this dataset, so release each step's tensors explicitly rather than
+            # letting the allocator's reserved memory climb across wildly different step sizes.
+            del X, y, tau, pred
+            if device.type == "cuda":
+                torch.cuda.empty_cache()
 
     return test_loss / dataloader.nsteps
