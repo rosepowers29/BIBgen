@@ -45,8 +45,14 @@ set -euo pipefail
 DATA_DIR=${DATA_DIR:-$REPO/data}
 OUT_DIR=${OUT_DIR:-$REPO/examples/training}
 EPOCHS=${EPOCHS:-151}
-BATCH_SIZE=${BATCH_SIZE:-5}
+BATCH_SIZE=${BATCH_SIZE:-}
 TRAIN_ARGS=${TRAIN_ARGS:-}
+
+# train.py requires exactly one of -b/--batch-size or --hit-budget. Omit -b entirely when
+# BATCH_SIZE isn't set, rather than defaulting it, so --hit-budget can be passed via TRAIN_ARGS
+# instead without colliding with it.
+batch_opts=()
+[[ -n $BATCH_SIZE ]] && batch_opts=(-b "$BATCH_SIZE")
 
 : "${DATA:?DATA (diffused hdf5, name in DATA_DIR or a path) is not set}"
 : "${CONFIG:?CONFIG (model json in config/models/) is not set}"
@@ -64,13 +70,13 @@ source "$REPO/.venv/bin/activate"
 export PYTHONUNBUFFERED=1
 
 echo "=== job $SLURM_JOB_ID on $(hostname) at $(date)"
-echo "=== tag=$TAG data=$data_path config=$CONFIG schedule=$SCHEDULE epochs=$EPOCHS batch=$BATCH_SIZE"
+echo "=== tag=$TAG data=$data_path config=$CONFIG schedule=$SCHEDULE epochs=$EPOCHS batch=${BATCH_SIZE:-<hit-budget>}"
 nvidia-smi --query-gpu=name,memory.total --format=csv,noheader
 
 cd "$OUT_DIR"
 # shellcheck disable=SC2086  # TRAIN_ARGS is deliberately word-split
 python "$REPO/examples/training/train.py" "$data_path" \
     "$REPO/config/noise_schedules/$SCHEDULE" "$REPO/config/models/$CONFIG" \
-    -e "$EPOCHS" -b "$BATCH_SIZE" -t "$TAG" $TRAIN_ARGS
+    -e "$EPOCHS" "${batch_opts[@]}" -t "$TAG" $TRAIN_ARGS
 
 echo "=== finished at $(date)"

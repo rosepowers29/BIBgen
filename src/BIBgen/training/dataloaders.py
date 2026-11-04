@@ -81,7 +81,10 @@ class BatchedDataLoader(BaseDataLoader):
         super().__init__(infile, key, shuffle)
 
         if batch_size is None:
-            possible_factors = np.arange(1, round(np.sqrt(self.ntau)))
+            # All divisors of ntau, not just those <= sqrt(ntau) -- a search capped at sqrt(ntau)
+            # would, e.g., cap every batch at 8 for ntau=256 (2**8), since 1/2/4/8 are its only
+            # divisors below 16, regardless of how large hit_budget is.
+            possible_factors = np.arange(1, self.ntau + 1)
             self.ntau_factors = possible_factors[self.ntau % possible_factors == 0]
         else:
             if self.ntau % batch_size != 0:
@@ -96,9 +99,9 @@ class BatchedDataLoader(BaseDataLoader):
             if batch_size is not None:
                 self.batch_size_per_event[event_id] = batch_size
             else:
-                possible_batch_sizes = self.ntau_factors * infile[self.key + "/" + event_id].shape[1]
-                valid_batch_sizes = possible_batch_sizes[possible_batch_sizes <= hit_budget]
-                self.batch_size_per_event[event_id] = 1 if valid_batch_sizes.shape[0] == 0 else valid_batch_sizes[-1]
+                possible_workloads = self.ntau_factors * infile[self.key + "/" + event_id].shape[1]
+                valid_factors = self.ntau_factors[possible_workloads <= hit_budget]
+                self.batch_size_per_event[event_id] = 1 if valid_factors.shape[0] == 0 else valid_factors[-1]
 
         self.nsteps = 0
         for event_id in self.batch_size_per_event:
@@ -144,4 +147,9 @@ class BatchedDataLoader(BaseDataLoader):
             self.cached_event = self.infile[self.key + "/" + event_id][:]
             self.cached_event_id = event_id
         event = self.cached_event
-        return torch.from_numpy(event[batch_taus + 1]).to(dtype=torch.float32), torch.from_numpy(event[batch_taus]).to(dtype=torch.float32), batch_taus
+        # event is a numpy array; numpy treats a single-element torch tensor index as a plain
+        # scalar (via __index__) rather than a length-1 array index, dropping the batch
+        # dimension when batch_size_per_event is 1. Converting to a numpy array first makes the
+        # indexing unambiguous regardless of batch size.
+        batch_taus_np = batch_taus.numpy()
+        return torch.from_numpy(event[batch_taus_np + 1]).to(dtype=torch.float32), torch.from_numpy(event[batch_taus_np]).to(dtype=torch.float32), batch_taus
