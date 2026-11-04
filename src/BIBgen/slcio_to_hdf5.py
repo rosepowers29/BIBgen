@@ -65,6 +65,25 @@ def make_collection_groups(hdf5_evt):
         th_dict[coll] = trkhit_group.create_group(coll)
     return ec_dict, hc_dict, th_dict
 
+# Hits outside one bunch crossing are out-of-time background and are dropped at conversion.
+BUNCH_CROSSING_MIN_TIME = 0.0  # ns
+BUNCH_CROSSING_MAX_TIME = 3.3e4  # ns
+
+def filter_hits_to_bunch_crossing(hit_sets):
+    """
+    Drop hits whose hit_time falls outside [BUNCH_CROSSING_MIN_TIME, BUNCH_CROSSING_MAX_TIME],
+    applying the same mask to every array in hit_sets so they stay aligned hit-for-hit.
+
+    Arguments:
+        hit_sets (dict[str, np.ndarray]): per-hit arrays (hit_times plus the other hit variables),
+            all the same length, as built by fill_calohit_datasets/fill_trackerhit_datasets.
+
+    Returns:
+        hit_sets (dict[str, np.ndarray]): same keys, each array masked to the bunch crossing window.
+    """
+    mask = (hit_sets["hit_times"] >= BUNCH_CROSSING_MIN_TIME) & (hit_sets["hit_times"] <= BUNCH_CROSSING_MAX_TIME)
+    return {key: val[mask] for key, val in hit_sets.items()}
+
 def fill_calohit_datasets(slcio_coll, hdf5_coll):
     """
     Create an array-like "dataset" at the lowest data level (below subdetector collections) for each calo hit variable of interest.
@@ -100,8 +119,9 @@ def fill_calohit_datasets(slcio_coll, hdf5_coll):
         hit_y_pos.append(hit.getPosition()[1])
         hit_z_pos.append(hit.getPosition()[2])
 
-    hit_sets = {"hit_times": np.array(hit_times), "hit_energy": np.array(hit_energy), "hit_cell_id": np.array(hit_cell_id), 
+    hit_sets = {"hit_times": np.array(hit_times), "hit_energy": np.array(hit_energy), "hit_cell_id": np.array(hit_cell_id),
                 "hit_x_pos": np.array(hit_x_pos), "hit_y_pos": np.array(hit_y_pos), "hit_z_pos": np.array(hit_z_pos)}
+    hit_sets = filter_hits_to_bunch_crossing(hit_sets)
 
     for key in hit_sets.keys():
         hit_sets[key] = hdf5_coll.create_dataset(key, data = hit_sets[key]) # replace arrays with hdf5 datasets
@@ -142,8 +162,9 @@ def fill_trackerhit_datasets(slcio_coll, hdf5_coll):
         hit_y_pos.append(hit.getPosition()[1])
         hit_z_pos.append(hit.getPosition()[2])
 
-    hit_sets = {"hit_times": np.array(hit_times), "hit_e_dep": np.array(hit_e_dep), "hit_cell_id": np.array(hit_cell_id), 
+    hit_sets = {"hit_times": np.array(hit_times), "hit_e_dep": np.array(hit_e_dep), "hit_cell_id": np.array(hit_cell_id),
                 "hit_x_pos": np.array(hit_x_pos), "hit_y_pos": np.array(hit_y_pos), "hit_z_pos": np.array(hit_z_pos)}
+    hit_sets = filter_hits_to_bunch_crossing(hit_sets)
 
     for key in hit_sets.keys():
         hit_sets[key] = hdf5_coll.create_dataset(key, data = hit_sets[key]) # replace arrays with hdf5 datasets
