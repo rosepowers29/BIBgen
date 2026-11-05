@@ -6,7 +6,7 @@ import numpy as np
 
 from BIBgen.preprocessing import Sphering
 
-def build_unsphered(event_id, gather, use_cylindrical, min_phi, max_phi, log_energy):
+def build_unsphered(event_id, gather, use_cylindrical, min_phi, max_phi, log_energy, log_time):
     e_raw = gather(event_id, "hit_energy")
     x_raw = gather(event_id, "hit_x_pos")
     y_raw = gather(event_id, "hit_y_pos")
@@ -15,6 +15,9 @@ def build_unsphered(event_id, gather, use_cylindrical, min_phi, max_phi, log_ene
 
     if log_energy:
         e_raw = np.log(e_raw)
+
+    if log_time:
+        t_raw = np.log1p(t_raw)
 
     if use_cylindrical:
         phi_raw = np.arctan2(y_raw, x_raw)
@@ -31,6 +34,7 @@ def main(args):
     max_phi = args.phi_window
     min_phi = -args.phi_window
     log_energy = not args.raw_energy   # default: ln(E); pass --raw-energy for raw E
+    log_time = args.log_time           # default: raw time; pass --log-time for ln(1+t)
     assert mm_path.endswith(".hdf5")
     assert mp_path.endswith(".hdf5")
     assert outpath.endswith(".hdf5")
@@ -57,7 +61,7 @@ def main(args):
     train_unsphered = []
     for ievent in range(ntrain):
         event_id = "evt_{}".format(ievent)
-        train_unsphered.append(build_unsphered(event_id, gather, use_cylindrical, min_phi, max_phi, log_energy))
+        train_unsphered.append(build_unsphered(event_id, gather, use_cylindrical, min_phi, max_phi, log_energy, log_time))
         print("Processed {} for training".format(event_id))
 
     sphering = Sphering.from_spherings([Sphering.from_data(d) for d in train_unsphered])
@@ -73,6 +77,7 @@ def main(args):
     sphere_group.create_dataset("mu", data=sphering.mu)
     sphere_group.create_dataset("std", data=sphering.std)
     sphere_group.attrs["log_energy"] = log_energy
+    sphere_group.attrs["log_time"] = log_time
 
     del train
     del train_unsphered
@@ -80,7 +85,7 @@ def main(args):
     val_group = outfile.create_group("validation")
     for ievent in range(ntrain, ntrain+nval):
         event_id = "evt_{}".format(ievent)
-        unsphered = build_unsphered(event_id, gather, use_cylindrical, min_phi, max_phi, log_energy)
+        unsphered = build_unsphered(event_id, gather, use_cylindrical, min_phi, max_phi, log_energy, log_time)
         sphered = sphering.transform(unsphered)
 
         event_group = val_group.create_group(event_id)
@@ -90,7 +95,7 @@ def main(args):
     test_group = outfile.create_group("test")
     for ievent in range(ntrain+nval, ntrain+nval+ntest):
         event_id = "evt_{}".format(ievent)
-        unsphered = build_unsphered(event_id, gather, use_cylindrical, min_phi, max_phi, log_energy)
+        unsphered = build_unsphered(event_id, gather, use_cylindrical, min_phi, max_phi, log_energy, log_time)
 
         event_group = test_group.create_group(event_id)
         event_group.create_dataset("tau0", data=unsphered)
@@ -110,4 +115,5 @@ if __name__ == "__main__":
     parser.add_argument("-c", "--cylindrical", action="store_true", help="Whether the training data should be in cylindrical coordinates")
     parser.add_argument("-p", "--phi-window", default=np.pi, type=float, help="Phi to slice the data.")
     parser.add_argument("--raw-energy", action="store_true", help="Store raw E instead of the default ln(E)")
+    parser.add_argument("--log-time", action="store_true", help="Store ln(1+t) instead of the default raw time")
     print("\nFinished with exit code:", main(parser.parse_args()))

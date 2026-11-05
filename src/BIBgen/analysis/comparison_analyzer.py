@@ -162,19 +162,21 @@ class ComparisonAnalyzer:
             result['time'] = np.concatenate(all_time)
         return result
     
-    def load_from_dict(self, name : str, events : dict, 
+    def load_from_dict(self, name : str, events : dict,
                                is_sphered: bool = True,
                                sphering = None,
-                               exponentiate_energy: bool = False) -> Dict[str, np.ndarray]:
+                               exponentiate_energy: bool = False,
+                               exponentiate_time: bool = False) -> Dict[str, np.ndarray]:
         """
         Load data from model output arrays, one per event, and register it under `name`.
-        
+
         Args:
             name: Key the dataset is registered under, also used as the plot legend label
             events: Mapping of event ID to array of shape (n_hits, 4 or 5) containing [E, phi, s, z] or [E, phi, s, z, time]
             is_sphered: Whether data is normalized
             sphering: Sphering object for unnormalization (required if is_sphered=True)
             exponentiate_energy: Whether the energy feature is ln(E) and must be exponentiated
+            exponentiate_time: Whether the time feature is ln(1+t) and must be inverted with expm1
 
         Returns:
             Dictionary with arrays: energy, phi, s, z, eta, and time (only if present in the data)
@@ -199,7 +201,10 @@ class ComparisonAnalyzer:
 
             events_processed[event_id] = {'energy': energy, 'phi': phi, 's': s, 'z': z, 'eta': eta}
             if data.shape[1] >= 5:
-                events_processed[event_id]['time'] = data[:, 4]
+                time = data[:, 4]
+                if exponentiate_time:
+                    time = np.expm1(time)
+                events_processed[event_id]['time'] = time
             for var in events_processed[event_id]:
                 aggr_processed[var].append(events_processed[event_id][var])
 

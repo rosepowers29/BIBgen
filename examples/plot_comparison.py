@@ -70,6 +70,7 @@ def main(args):
         mu = np.array(mcfile["transformation/mu"])
         std = np.array(mcfile["transformation/std"])
         stored_log_energy = bool(mcfile["transformation"].attrs.get("log_energy", False))
+        stored_log_time = bool(mcfile["transformation"].attrs.get("log_time", False))
 
         mcdata = {event_id : np.array(mcfile["test/" + event_id + "/tau0"]) for event_id in mcfile["test"].keys()}
 
@@ -79,6 +80,14 @@ def main(args):
         log_energy = (args.log_energy == "yes")
         if log_energy != stored_log_energy:
             print(f"Warning: --log-energy={args.log_energy} overrides the log_energy={stored_log_energy} "
+                  f"flag stored in {mcpath}")
+
+    if args.log_time == "auto":
+        log_time = stored_log_time
+    else:
+        log_time = (args.log_time == "yes")
+        if log_time != stored_log_time:
+            print(f"Warning: --log-time={args.log_time} overrides the log_time={stored_log_time} "
                   f"flag stored in {mcpath}")
 
     gendata = {}
@@ -97,9 +106,9 @@ def main(args):
         time_range = (0, 15000),
         output_dir = outpath
     )
-    analyzer.load_from_dict("MC", mcdata, is_sphered=False, exponentiate_energy=log_energy)
+    analyzer.load_from_dict("MC", mcdata, is_sphered=False, exponentiate_energy=log_energy, exponentiate_time=log_time)
     for name in gendata:
-        analyzer.load_from_dict(name, gendata[name], sphering=Sphering(mu, std), exponentiate_energy=log_energy)
+        analyzer.load_from_dict(name, gendata[name], sphering=Sphering(mu, std), exponentiate_energy=log_energy, exponentiate_time=log_time)
 
     for genname in gen_input:
         analyzer.plot_kinematics_1d("MC", genname, prefix=gen_input[genname][1], normalized=False, log_scale=False)
@@ -123,4 +132,6 @@ if __name__ == "__main__":
              "single generated file is given (default: inferred from the generated file name)")
     parser.add_argument("-l", "--log-energy", choices=["auto", "yes", "no"], default="auto",
         help="Whether the energy feature is ln(E). 'auto' reads the flag stored in the MC file.")
+    parser.add_argument("--log-time", choices=["auto", "yes", "no"], default="auto",
+        help="Whether the time feature is ln(1+t). 'auto' reads the flag stored in the MC file.")
     print("\nFinished with exit code:", main(parser.parse_args()))
