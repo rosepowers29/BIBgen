@@ -67,6 +67,10 @@ def make_collection_groups(hdf5_evt):
 
 CALO_TIME_MODES = ("earliest", "energy_weighted", "highest_energy")
 
+# Speed of light, matching CLHEP::c_light as used in RealisticCaloDigi's time-of-flight
+# correction, consistent with hit positions being in mm.
+C_LIGHT_MM_PER_NS = 299.792458
+
 # Hits outside one bunch crossing are out-of-time background and are dropped at conversion.
 BUNCH_CROSSING_MIN_TIME = 0.0  # ns
 BUNCH_CROSSING_MAX_TIME = 3.3e4  # ns
@@ -86,7 +90,7 @@ def filter_hits_to_bunch_crossing(hit_sets):
     mask = (hit_sets["hit_times"] >= BUNCH_CROSSING_MIN_TIME) & (hit_sets["hit_times"] <= BUNCH_CROSSING_MAX_TIME)
     return {key: val[mask] for key, val in hit_sets.items()}
 
-def get_calo_hit_time(hit, time_mode = "earliest"):
+def get_calo_hit_time(hit, time_mode = "earliest", correct_for_propagation = False):
     """
     Derive a single hit time for a SimCalorimeterHit from its CaloHitContributions.
 
@@ -100,6 +104,9 @@ def get_calo_hit_time(hit, time_mode = "earliest"):
             "earliest": the time of the earliest (minimum-time) contribution
             "energy_weighted": the energy-weighted average time over all contributions
             "highest_energy": the time of the contribution that deposited the most energy
+        correct_for_propagation (bool): if True, subtract the time of flight from the origin to
+            the hit's position (|r| / c_light) from every contribution's time before reducing,
+            matching RealisticCaloDigi.cc's StandardIntegration time-of-flight correction.
 
     Returns:
         time (float): the derived hit time, or -1. if the hit has no contributions.
@@ -107,10 +114,15 @@ def get_calo_hit_time(hit, time_mode = "earliest"):
     if time_mode not in CALO_TIME_MODES:
         raise ValueError(f"Unknown calo hit time_mode '{time_mode}', expected one of {CALO_TIME_MODES}")
 
+    time_correction = 0.
+    if correct_for_propagation:
+        pos = hit.getPosition()
+        time_correction = np.sqrt(pos.x**2 + pos.y**2 + pos.z**2) / C_LIGHT_MM_PER_NS
+
     times = []
     energies = []
     for contribution in hit.getContributions():
-        times.append(contribution.getTime())
+        times.append(contribution.getTime() - time_correction)
         energies.append(contribution.getEnergy())
 
     if not times:
@@ -126,7 +138,7 @@ def get_calo_hit_time(hit, time_mode = "earliest"):
     else: # "highest_energy"
         return times[energies.index(max(energies))]
 
-def fill_calohit_datasets(edm4hep_coll, hdf5_coll, time_mode = "earliest"):
+def fill_calohit_datasets(edm4hep_coll, hdf5_coll, time_mode = "earliest", correct_for_propagation = False):
     """
     Create an array-like "dataset" at the lowest data level (below subdetector collections) for each calo hit variable of interest.
 
@@ -135,6 +147,8 @@ def fill_calohit_datasets(edm4hep_coll, hdf5_coll, time_mode = "earliest"):
         hdf5_coll (h5py group object): the calohit collection "group" in the h5py file, created with make_collection_groups(),
         where we want to write the datasets.
         time_mode (str): how to reduce each hit's CaloHitContributions down to a single hit_time. See get_calo_hit_time().
+        correct_for_propagation (bool): whether to apply a time-of-flight correction before reducing each hit's
+            CaloHitContributions. See get_calo_hit_time().
 
     Returns:
         hit_sets (dictionary): a dict of h5py "dataset" objects for each variable of interest
@@ -152,7 +166,7 @@ def fill_calohit_datasets(edm4hep_coll, hdf5_coll, time_mode = "earliest"):
     hit_z_pos = []
 
     for hit in edm4hep_coll:
-        hit_times.append(get_calo_hit_time(hit, time_mode = time_mode))
+        hit_times.append(get_calo_hit_time(hit, time_mode = time_mode, correct_for_propagation = correct_for_propagation))
         hit_energy.append(hit.getEnergy())
         hit_cell_id.append(hit.getCellID())
         pos = hit.getPosition()
@@ -215,7 +229,7 @@ def fill_trackerhit_datasets(edm4hep_coll, hdf5_coll):
 
 
 
-def convert_files(files_to_read, file_to_write, calo_time_mode = "earliest"):
+def convert_files(files_to_read, file_to_write, calo_time_mode = "earliest", correct_for_propagation = False):
     """
     The main routine. In the executable script, get the arguments from the command line and call this function.
     Grabs edm4hep.root files, opens them, gets desired collections, and writes to hdf5 file.
@@ -225,6 +239,8 @@ def convert_files(files_to_read, file_to_write, calo_time_mode = "earliest"):
         file_to_write (str): filepath of output file
         calo_time_mode (str): how to derive each SimCalorimeterHit's hit_time from its CaloHitContributions.
             One of CALO_TIME_MODES ("earliest", "energy_weighted", "highest_energy"). See get_calo_hit_time().
+        correct_for_propagation (bool): whether to apply a time-of-flight correction (|r| / c_light) to each
+            CaloHitContribution's time before reducing it to a single hit_time. See get_calo_hit_time().
 
     Returns: None
 
@@ -262,11 +278,13 @@ def convert_files(files_to_read, file_to_write, calo_time_mode = "earliest"):
                 for ecal_coll in ec_dict.keys():
                     if ecal_coll not in collections_avail:
                         continue
-                    fill_calohit_datasets(frame.get(ecal_coll), ec_dict[ecal_coll], time_mode = calo_time_mode)
+                    fill_calohit_datasets(frame.get(ecal_coll), ec_dict[ecal_coll], time_mode = calo_time_mode,
+                                           correct_for_propagation = correct_for_propagation)
                 for hcal_coll in hc_dict.keys():
                     if hcal_coll not in collections_avail:
                         continue
-                    fill_calohit_datasets(frame.get(hcal_coll), hc_dict[hcal_coll], time_mode = calo_time_mode)
+                    fill_calohit_datasets(frame.get(hcal_coll), hc_dict[hcal_coll], time_mode = calo_time_mode,
+                                           correct_for_propagation = correct_for_propagation)
                 for th_coll in th_dict.keys():
                     if th_coll not in collections_avail:
                         continue
