@@ -11,7 +11,8 @@ from BIBgen.preprocessing import Sphering
 from BIBgen.analysis import ComparisonAnalyzer
 
 WASSERSTEIN_VARIABLES = ("energy", "phi", "eta", "s", "z", "time")
-WASSERSTEIN_2D_PAIRS = (("eta", "phi"), ("s", "z"))
+WASSERSTEIN_2D_PAIRS = (("eta", "phi"), ("s", "z"), ("eta", "s"), ("eta", "z"),
+        ("s", "phi"), ("z", "phi"))
 
 def none_or_int(value):
     return None if value.lower() == "none" else int(value)
