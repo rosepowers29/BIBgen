@@ -14,11 +14,31 @@ from pathlib import Path
 from BIBgen.analysis import plotting
 from BIBgen.analysis.utils import eta_from_cylindrical, deltaR
 
+# Maps a variable name to the ComparisonAnalyzer attribute holding its configured
+# (lo, hi) range, used to min-max normalize that variable before it enters a
+# Euclidean ground distance alongside other, differently-scaled/unit variables.
+_VARIABLE_RANGE_ATTR = {
+    "energy": "energy_range",
+    "phi": "phi_range",
+    "eta": "eta_range",
+    "s": "s_range",
+    "z": "z_range",
+    "time": "time_range",
+}
+
 def _subsample_rows(points: np.ndarray, max_samples: Optional[int], rng: np.random.Generator) -> np.ndarray:
     if max_samples is not None and len(points) > max_samples:
         idx = rng.choice(len(points), max_samples, replace=False)
         points = points[idx]
     return points
+
+# wasserstein_distance_nd builds a sparse constraint matrix with one column per
+# (point in points1, point in points2) pair, indexed with int32 -- beyond this
+# many pairs, scipy.sparse.block_diag raises an OverflowError instead of
+# failing gracefully. Comfortably below that limit, the exact transport LP is
+# already impractically slow (cubic-ish in sample count), so this is really
+# just a tripwire for a clearer error message.
+_WASSERSTEIN_ND_MAX_PAIRS = 2_000_000
 
 class ComparisonAnalyzer:
     """Histogram analyzer for BIB detector hits in cylindrical coordinates."""
@@ -393,23 +413,62 @@ class ComparisonAnalyzer:
             mask_zero=True
         )
 
-    def _variable_matrix(self, name: str, variables: Tuple[str, ...]) -> np.ndarray:
-        """Stack `variables` from dataset `name` into an (n_hits, len(variables)) array, dropping any row with a non-finite entry."""
+    def _variable_matrix(self, name: str, variables: Tuple[str, ...], normalize: bool = True) -> np.ndarray:
+        """
+        Stack `variables` from dataset `name` into an (n_hits, len(variables))
+        array, dropping any row with a non-finite entry.
+
+        When normalize=True, each column is min-max scaled against this
+        analyzer's configured <var>_range, so that variables with different
+        units/scales (e.g. dimensionless eta vs z in mm) contribute comparably
+        to a downstream Euclidean ground distance instead of one variable
+        silently dominating it.
+        """
         data = self.aggr_data[name]
-        matrix = np.column_stack([data[var] for var in variables])
-        return matrix[np.all(np.isfinite(matrix), axis=1)]
+        matrix = np.column_stack([data[var] for var in variables]).astype(float)
+        matrix = matrix[np.all(np.isfinite(matrix), axis=1)]
+
+        if normalize:
+            for col, var in enumerate(variables):
+                attr = _VARIABLE_RANGE_ATTR.get(var)
+                var_range = getattr(self, attr, None) if attr is not None else None
+                if var_range is None:
+                    raise ValueError(
+                        f"Cannot normalize variable {var!r}: no {attr or 'range'} is configured on "
+                        f"this analyzer. Pass normalize=False to use raw units instead (only "
+                        f"meaningful when every requested variable already shares consistent units)."
+                    )
+                lo, hi = var_range
+                matrix[:, col] = (matrix[:, col] - lo) / (hi - lo)
+
+        return matrix
 
     def compute_wasserstein_nd(self,
         name1 : str,
         name2 : str,
         variables : Tuple[str, ...],
         max_samples : Optional[int] = 200,
+        normalize : bool = True,
         rng : Optional[np.random.Generator] = None,
     ) -> float:
         """
         Earth mover's (Wasserstein-1) distance between the joint distribution of
         `variables` (e.g. ("eta", "phi") or ("s", "z")) for datasets `name1` and
         `name2`, via scipy.stats.wasserstein_distance_nd.
+
+        Units: wasserstein_distance_nd uses a Euclidean ground distance over
+        the stacked raw values, so mixing variables of different units/scales
+        (e.g. dimensionless eta alongside z in mm) produces a number dominated
+        by whichever variable has the largest magnitude -- not a meaningful
+        distance in any one unit. With normalize=True (the default), each
+        variable is first min-max scaled against this analyzer's configured
+        <var>_range (the same bounds used for its 1D/2D histograms), so every
+        variable contributes comparably; the result is then a dimensionless
+        discrepancy score in units of "fraction of configured range", not a
+        physical distance. Pass normalize=False to use raw units instead --
+        appropriate when every requested variable already shares consistent
+        units (e.g. ("s", "z"), both mm), in which case the result is the
+        physical Euclidean distance in those units.
 
         Unlike the 1D wasserstein_distance, the N-D version solves an exact
         transport LP whose size scales with the *product* of the two sample
@@ -418,13 +477,32 @@ class ComparisonAnalyzer:
         subsampled (without replacement) to at most `max_samples` points before
         the distance is computed -- tune this to what your hardware can solve
         in acceptable time; pass max_samples=None to disable subsampling
-        entirely (only advisable for datasets already that small).
+        entirely (only advisable for datasets already that small -- a few
+        hundred points at most).
+
+        Raises:
+            ValueError: if normalize=True and a requested variable has no
+                configured range on this analyzer; or if the (post-subsampling)
+                dataset sizes are large enough that scipy would hit an int32
+                overflow building its internal sparse constraint matrix, rather
+                than letting that happen as a cryptic OverflowError deep in
+                scipy.sparse.
         """
         if rng is None:
             rng = np.random.default_rng()
 
-        points1 = _subsample_rows(self._variable_matrix(name1, variables), max_samples, rng)
-        points2 = _subsample_rows(self._variable_matrix(name2, variables), max_samples, rng)
+        points1 = _subsample_rows(self._variable_matrix(name1, variables, normalize=normalize), max_samples, rng)
+        points2 = _subsample_rows(self._variable_matrix(name2, variables, normalize=normalize), max_samples, rng)
+
+        n_pairs = len(points1) * len(points2)
+        if n_pairs > _WASSERSTEIN_ND_MAX_PAIRS:
+            raise ValueError(
+                f"compute_wasserstein_nd({name1!r}, {name2!r}, {variables!r}): "
+                f"{len(points1)} x {len(points2)} = {n_pairs:,} point pairs is too large for "
+                f"wasserstein_distance_nd's exact transport LP (limit {_WASSERSTEIN_ND_MAX_PAIRS:,}); "
+                f"it would either overflow scipy's sparse matrix indices or take far too long to "
+                f"solve. Pass a smaller max_samples (default 200)."
+            )
 
         return float(wasserstein_distance_nd(points1, points2))
 
@@ -433,16 +511,18 @@ class ComparisonAnalyzer:
         name2 : str,
         variable_groups : List[Tuple[str, ...]],
         max_samples : Optional[int] = 200,
+        normalize : bool = True,
         seed : Optional[int] = None,
     ) -> Dict[Tuple[str, ...], float]:
         """
         compute_wasserstein_nd for several variable groupings at once (e.g.
         [("eta", "phi"), ("s", "z")]), sharing one RNG so the subsampling is
-        reproducible across groupings for a given seed.
+        reproducible across groupings for a given seed. See compute_wasserstein_nd
+        for what normalize=True/False means for the resulting units.
         """
         rng = np.random.default_rng(seed)
         return {
-            variables : self.compute_wasserstein_nd(name1, name2, variables, max_samples=max_samples, rng=rng)
+            variables : self.compute_wasserstein_nd(name1, name2, variables, max_samples=max_samples, normalize=normalize, rng=rng)
             for variables in variable_groups
         }
 

@@ -51,7 +51,7 @@ def write_wasserstein_distances(analyzer, reference_name, tags, outdir):
     return distances
 
 def write_wasserstein_distances_2d(analyzer, reference_name, tags, outdir,
-                                    pairs=WASSERSTEIN_2D_PAIRS, max_samples=200, seed=0):
+                                    pairs=WASSERSTEIN_2D_PAIRS, max_samples=200, normalize=True, seed=0):
     """
     Writes per-pair N-D Wasserstein distance (e.g. the joint eta-phi or s-z
     distribution) between the MC and each generated distribution to
@@ -59,23 +59,30 @@ def write_wasserstein_distances_2d(analyzer, reference_name, tags, outdir,
     but kept in a separate file/column layout ("variables" holds e.g. "eta-phi")
     since analyze_ablation.py's pivot on wasserstein_distances.csv expects one
     row per single variable name.
+
+    With normalize=True (default), each variable is min-max scaled against its
+    configured range before the distance is computed, so mixed-unit pairs (e.g.
+    eta alongside z) are comparable instead of being dominated by whichever
+    variable has the larger raw magnitude -- see
+    ComparisonAnalyzer.compute_wasserstein_nd for the full units discussion.
     """
     mc_vars = analyzer.aggr_data[reference_name]
     pairs = [p for p in pairs if all(v in mc_vars for v in p)]
     distances = {
-        name: analyzer.compute_wasserstein_nd_pairs(reference_name, name, pairs, max_samples=max_samples, seed=seed)
+        name: analyzer.compute_wasserstein_nd_pairs(reference_name, name, pairs, max_samples=max_samples, normalize=normalize, seed=seed)
         for name in tags
     }
 
     csv_path = os.path.join(outdir, "wasserstein_distances_2d.csv")
     with open(csv_path, "w", newline="") as f:
         writer = csv.writer(f)
-        writer.writerow(["tag", "variables", "wasserstein_distance"])
+        writer.writerow(["tag", "variables", "wasserstein_distance", "normalized"])
         for name in distances:
             for pair, v in distances[name].items():
-                writer.writerow([tags[name], "-".join(pair), v])
+                writer.writerow([tags[name], "-".join(pair), v, normalize])
 
-    print(f"2D Wasserstein distances written to {csv_path}:")
+    units_note = "normalized to configured ranges, dimensionless" if normalize else "raw units"
+    print(f"2D Wasserstein distances ({units_note}) written to {csv_path}:")
     for name in distances:
         print(f"  {name} (tag: {tags[name]}):")
         for pair, v in distances[name].items():

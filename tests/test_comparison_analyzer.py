@@ -210,6 +210,61 @@ class TestComparisonAnalyzer:
         assert set(result.keys()) == set(pairs)
         assert all(v >= 0 for v in result.values())
 
+    def test_compute_wasserstein_nd_normalize_is_scale_invariant(self):
+        """
+        Rescaling a variable's raw values together with its configured range (e.g. as if z had been
+        recorded in a different unit) leaves the normalize=True distance unchanged, while the raw
+        (normalize=False) distance scales right along with it -- demonstrating that raw units are
+        unit-ambiguous for mixed-scale pairs like eta-z, and that normalization fixes this.
+        """
+        def hits(z, eta):
+            return {'energy': np.ones(5), 'phi': np.zeros(5), 's': np.full(5, 2000.0), 'z': z, 'eta': eta}
+
+        mc_eta = np.array([-1.0, -0.5, 0.0, 0.5, 1.0])
+        mc_z = np.array([-8.0, -4.0, 0.0, 4.0, 8.0])
+        gen_eta = mc_eta + 0.2
+        gen_z = mc_z + 1.0
+
+        base_range = {**var_range, "z_range": (-10.0, 10.0)}
+        analyzer = ComparisonAnalyzer(**base_range)
+        analyzer.load_hits("MC", hits(mc_z, mc_eta))
+        analyzer.load_hits("Gen", hits(gen_z, gen_eta))
+        d_norm = analyzer.compute_wasserstein_nd("MC", "Gen", ("eta", "z"), max_samples=None, normalize=True)
+        d_raw = analyzer.compute_wasserstein_nd("MC", "Gen", ("eta", "z"), max_samples=None, normalize=False)
+
+        scale = 1000.0
+        scaled_range = {**var_range, "z_range": (-10.0 * scale, 10.0 * scale)}
+        scaled_analyzer = ComparisonAnalyzer(**scaled_range)
+        scaled_analyzer.load_hits("MC", hits(mc_z * scale, mc_eta))
+        scaled_analyzer.load_hits("Gen", hits(gen_z * scale, gen_eta))
+        d_norm_scaled = scaled_analyzer.compute_wasserstein_nd("MC", "Gen", ("eta", "z"), max_samples=None, normalize=True)
+        d_raw_scaled = scaled_analyzer.compute_wasserstein_nd("MC", "Gen", ("eta", "z"), max_samples=None, normalize=False)
+
+        # normalize=True divides out the configured range, so rescaling z and z_range together changes nothing.
+        assert d_norm_scaled == pytest.approx(d_norm, rel=1e-6)
+        # normalize=False has no such protection: the same rescaling blows the raw distance up by ~`scale`,
+        # i.e. a change of *unit* alone moves the number by three orders of magnitude.
+        assert d_raw_scaled > 100 * d_raw
+
+    def test_compute_wasserstein_nd_normalize_requires_configured_range(self, rng):
+        """normalize=True on a variable with no configured range (time_range defaults to None) raises clearly."""
+        analyzer = ComparisonAnalyzer(**var_range)
+        events = make_events_with_time(1, 20, rng)
+        analyzer.load_from_dict("MC", events, is_sphered=False)
+        analyzer.load_from_dict("Generated", events, is_sphered=False)
+
+        with pytest.raises(ValueError, match="time_range"):
+            analyzer.compute_wasserstein_nd("MC", "Generated", ("eta", "time"), max_samples=None)
+
+    def test_compute_wasserstein_nd_raises_before_lp_overflow(self, loaded_analyzer, monkeypatch):
+        """Oversized (e.g. max_samples=None on real-size data) inputs raise a clear ValueError
+        instead of scipy.sparse's cryptic int32 OverflowError from inside wasserstein_distance_nd."""
+        import BIBgen.analysis.comparison_analyzer as comparison_analyzer_module
+        monkeypatch.setattr(comparison_analyzer_module, "_WASSERSTEIN_ND_MAX_PAIRS", 100)
+
+        with pytest.raises(ValueError, match="too large"):
+            loaded_analyzer.compute_wasserstein_nd("MC", "Generated", ("eta", "phi"), max_samples=None)
+
     def test_compute_wasserstein_nd_ignores_non_finite_rows(self, temp_dir):
         """Non-finite rows (e.g. NaN eta) are dropped rather than propagating to the LP."""
         analyzer = ComparisonAnalyzer(**var_range, output_dir=temp_dir)
