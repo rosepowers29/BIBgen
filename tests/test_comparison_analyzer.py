@@ -183,6 +183,50 @@ class TestComparisonAnalyzer:
         assert (Path(temp_dir) / "test_clustering.png").exists()
         assert (Path(temp_dir) / "test_clustering_ratio.png").exists()
 
+    def test_compute_wasserstein_nd_identical_is_near_zero(self, loaded_analyzer):
+        """Comparing a dataset against itself yields ~0 distance for a 2D pair (no subsampling, so the point sets match exactly)."""
+        d = loaded_analyzer.compute_wasserstein_nd("MC", "MC", ("eta", "phi"), max_samples=None)
+
+        assert d == pytest.approx(0.0, abs=1e-8)
+
+    def test_compute_wasserstein_nd_detects_shift(self, rng):
+        """A shifted eta-phi distribution gives a positive distance roughly matching the shift."""
+        analyzer = ComparisonAnalyzer(**var_range)
+        analyzer.load_hits("MC", make_hits(100, rng))
+
+        shifted = make_hits(100, rng)
+        shifted["phi"] = shifted["phi"] + 0.5
+        analyzer.load_hits("Shifted", shifted)
+
+        d = analyzer.compute_wasserstein_nd("MC", "Shifted", ("eta", "phi"), max_samples=50, rng=np.random.default_rng(0))
+
+        assert d > 0.1
+
+    def test_compute_wasserstein_nd_pairs(self, loaded_analyzer):
+        """compute_wasserstein_nd_pairs returns one distance per requested variable grouping."""
+        pairs = [("eta", "phi"), ("s", "z")]
+        result = loaded_analyzer.compute_wasserstein_nd_pairs("MC", "Generated", pairs, max_samples=30, seed=0)
+
+        assert set(result.keys()) == set(pairs)
+        assert all(v >= 0 for v in result.values())
+
+    def test_compute_wasserstein_nd_ignores_non_finite_rows(self, temp_dir):
+        """Non-finite rows (e.g. NaN eta) are dropped rather than propagating to the LP."""
+        analyzer = ComparisonAnalyzer(**var_range, output_dir=temp_dir)
+        hits = {
+            'energy': np.array([1.0, 2.0, 3.0, 4.0]),
+            'phi': np.array([0.0, 0.1, 0.2, 0.3]),
+            's': np.array([1900.0, 1950.0, 2000.0, 2050.0]),
+            'z': np.array([100.0, 150.0, 200.0, 250.0]),
+            'eta': np.array([1.0, np.nan, 2.0, np.inf]),
+        }
+        analyzer.load_hits("A", hits)
+        analyzer.load_hits("B", hits)
+
+        d = analyzer.compute_wasserstein_nd("A", "B", ("eta", "phi"), max_samples=None)
+
+        assert d == pytest.approx(0.0, abs=1e-8)
+
     def test_plot_clustering_without_energy_weights(self, loaded_analyzer, temp_dir):
         """use_energy=False falls back to plain hit counting."""
         loaded_analyzer.plot_clustering("evt_0", prefix="test", bins=10, use_energy=False)

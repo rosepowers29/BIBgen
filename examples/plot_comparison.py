@@ -11,6 +11,7 @@ from BIBgen.preprocessing import Sphering
 from BIBgen.analysis import ComparisonAnalyzer
 
 WASSERSTEIN_VARIABLES = ("energy", "phi", "eta", "s", "z", "time")
+WASSERSTEIN_2D_PAIRS = (("eta", "phi"), ("s", "z"))
 
 def infer_tag(genpath):
     stem = os.path.splitext(os.path.basename(genpath))[0]
@@ -43,6 +44,39 @@ def write_wasserstein_distances(analyzer, reference_name, tags, outdir):
         print(f"  {name} (tag: {tags[name]}):")
         for k, v in distances[name].items():
             print(f"    {k}: {v:.6g}")
+
+    return distances
+
+def write_wasserstein_distances_2d(analyzer, reference_name, tags, outdir,
+                                    pairs=WASSERSTEIN_2D_PAIRS, max_samples=200, seed=0):
+    """
+    Writes per-pair N-D Wasserstein distance (e.g. the joint eta-phi or s-z
+    distribution) between the MC and each generated distribution to
+    <outdir>/wasserstein_distances_2d.csv. Mirrors write_wasserstein_distances,
+    but kept in a separate file/column layout ("variables" holds e.g. "eta-phi")
+    since analyze_ablation.py's pivot on wasserstein_distances.csv expects one
+    row per single variable name.
+    """
+    mc_vars = analyzer.aggr_data[reference_name]
+    pairs = [p for p in pairs if all(v in mc_vars for v in p)]
+    distances = {
+        name: analyzer.compute_wasserstein_nd_pairs(reference_name, name, pairs, max_samples=max_samples, seed=seed)
+        for name in tags
+    }
+
+    csv_path = os.path.join(outdir, "wasserstein_distances_2d.csv")
+    with open(csv_path, "w", newline="") as f:
+        writer = csv.writer(f)
+        writer.writerow(["tag", "variables", "wasserstein_distance"])
+        for name in distances:
+            for pair, v in distances[name].items():
+                writer.writerow([tags[name], "-".join(pair), v])
+
+    print(f"2D Wasserstein distances written to {csv_path}:")
+    for name in distances:
+        print(f"  {name} (tag: {tags[name]}):")
+        for pair, v in distances[name].items():
+            print(f"    {'-'.join(pair)}: {v:.6g}")
 
     return distances
 
@@ -114,6 +148,7 @@ def main(args):
         analyzer.plot_kinematics_1d("MC", genname, prefix=gen_input[genname][1], normalized=False, log_scale=False)
 
     write_wasserstein_distances(analyzer, "MC", tags, outpath)
+    write_wasserstein_distances_2d(analyzer, "MC", tags, outpath, max_samples=args.wasserstein_2d_samples)
 
     analyzer.plot_s_eta_2d("MC", "mc")
     for genname in gen_input:
@@ -134,4 +169,8 @@ if __name__ == "__main__":
         help="Whether the energy feature is ln(E). 'auto' reads the flag stored in the MC file.")
     parser.add_argument("--log-time", choices=["auto", "yes", "no"], default="auto",
         help="Whether the time feature is ln(1+t). 'auto' reads the flag stored in the MC file.")
+    parser.add_argument("--wasserstein-2d-samples", type=int, default=200,
+        help="Per-dataset subsample cap for the 2D (eta-phi, s-z) Wasserstein distances -- "
+             "wasserstein_distance_nd solves an exact transport LP that scales poorly with "
+             "sample count, so keep this small.")
     print("\nFinished with exit code:", main(parser.parse_args()))

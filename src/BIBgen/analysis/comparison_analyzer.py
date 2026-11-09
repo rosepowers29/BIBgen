@@ -7,11 +7,18 @@ from __future__ import annotations
 import numpy as np
 import h5py
 import matplotlib.pyplot as plt
+from scipy.stats import wasserstein_distance_nd
 from typing import Dict, List, Tuple, Optional
 from pathlib import Path
 
 from BIBgen.analysis import plotting
 from BIBgen.analysis.utils import eta_from_cylindrical, deltaR
+
+def _subsample_rows(points: np.ndarray, max_samples: Optional[int], rng: np.random.Generator) -> np.ndarray:
+    if max_samples is not None and len(points) > max_samples:
+        idx = rng.choice(len(points), max_samples, replace=False)
+        points = points[idx]
+    return points
 
 class ComparisonAnalyzer:
     """Histogram analyzer for BIB detector hits in cylindrical coordinates."""
@@ -363,6 +370,7 @@ class ComparisonAnalyzer:
             mask_zero=True
         )
 
+    
     def plot_s_eta_2d(self,
         name : str,
         prefix : str = "",
@@ -384,7 +392,59 @@ class ComparisonAnalyzer:
             self.eta_range,
             mask_zero=True
         )
-        
+
+    def _variable_matrix(self, name: str, variables: Tuple[str, ...]) -> np.ndarray:
+        """Stack `variables` from dataset `name` into an (n_hits, len(variables)) array, dropping any row with a non-finite entry."""
+        data = self.aggr_data[name]
+        matrix = np.column_stack([data[var] for var in variables])
+        return matrix[np.all(np.isfinite(matrix), axis=1)]
+
+    def compute_wasserstein_nd(self,
+        name1 : str,
+        name2 : str,
+        variables : Tuple[str, ...],
+        max_samples : Optional[int] = 200,
+        rng : Optional[np.random.Generator] = None,
+    ) -> float:
+        """
+        Earth mover's (Wasserstein-1) distance between the joint distribution of
+        `variables` (e.g. ("eta", "phi") or ("s", "z")) for datasets `name1` and
+        `name2`, via scipy.stats.wasserstein_distance_nd.
+
+        Unlike the 1D wasserstein_distance, the N-D version solves an exact
+        transport LP whose size scales with the *product* of the two sample
+        sizes, so it becomes impractically slow well before either dataset
+        reaches even a few hundred points. Each dataset is therefore randomly
+        subsampled (without replacement) to at most `max_samples` points before
+        the distance is computed -- tune this to what your hardware can solve
+        in acceptable time; pass max_samples=None to disable subsampling
+        entirely (only advisable for datasets already that small).
+        """
+        if rng is None:
+            rng = np.random.default_rng()
+
+        points1 = _subsample_rows(self._variable_matrix(name1, variables), max_samples, rng)
+        points2 = _subsample_rows(self._variable_matrix(name2, variables), max_samples, rng)
+
+        return float(wasserstein_distance_nd(points1, points2))
+
+    def compute_wasserstein_nd_pairs(self,
+        name1 : str,
+        name2 : str,
+        variable_groups : List[Tuple[str, ...]],
+        max_samples : Optional[int] = 200,
+        seed : Optional[int] = None,
+    ) -> Dict[Tuple[str, ...], float]:
+        """
+        compute_wasserstein_nd for several variable groupings at once (e.g.
+        [("eta", "phi"), ("s", "z")]), sharing one RNG so the subsampling is
+        reproducible across groupings for a given seed.
+        """
+        rng = np.random.default_rng(seed)
+        return {
+            variables : self.compute_wasserstein_nd(name1, name2, variables, max_samples=max_samples, rng=rng)
+            for variables in variable_groups
+        }
 
     def plot_delta_r_clustering(self, hits: Dict[str, np.ndarray],
                                 prefix: str = "bib",
