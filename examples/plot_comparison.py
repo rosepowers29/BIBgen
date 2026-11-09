@@ -13,6 +13,9 @@ from BIBgen.analysis import ComparisonAnalyzer
 WASSERSTEIN_VARIABLES = ("energy", "phi", "eta", "s", "z", "time")
 WASSERSTEIN_2D_PAIRS = (("eta", "phi"), ("s", "z"))
 
+def none_or_int(value):
+    return None if value.lower() == "none" else int(value)
+
 def infer_tag(genpath):
     stem = os.path.splitext(os.path.basename(genpath))[0]
     return re.sub(r"_like$", "", stem)
@@ -169,8 +172,8 @@ if __name__ == "__main__":
         help="Whether the energy feature is ln(E). 'auto' reads the flag stored in the MC file.")
     parser.add_argument("--log-time", choices=["auto", "yes", "no"], default="auto",
         help="Whether the time feature is ln(1+t). 'auto' reads the flag stored in the MC file.")
-    parser.add_argument("--wasserstein-2d-samples", type=int, default=200,
-        help="Per-dataset subsample cap for the 2D (eta-phi, s-z) Wasserstein distances -- "
-             "wasserstein_distance_nd solves an exact transport LP that scales poorly with "
-             "sample count, so keep this small.")
+    parser.add_argument("--wasserstein-2d-samples", type=none_or_int, default=200,
+        help="Per-dataset subsample cap for the 2D (eta-phi, s-z) Wasserstein distances, or "
+             "'none' to disable subsampling -- wasserstein_distance_nd solves an exact transport "
+             "LP that scales poorly with sample count, so keep this small.")
     print("\nFinished with exit code:", main(parser.parse_args()))
