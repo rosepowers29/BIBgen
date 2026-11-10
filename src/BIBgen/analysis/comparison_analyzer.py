@@ -390,7 +390,51 @@ class ComparisonAnalyzer:
             mask_zero=True
         )
 
-    
+    def plot_eta_phi_residual_2d(self,
+        name1 : str,
+        name2 : str,
+        prefix : str = "",
+        bins: int | tuple = 50,
+        normalized : bool = False
+    ):
+        """
+        2D histogram of (eta, phi) for `name2` minus `name1` (e.g. Generated - MC), same
+        binning for both so the bins line up exactly. Non-finite eta entries (e.g. an
+        on-axis hit with undefined pseudorapidity) are dropped from both datasets first.
+
+        normalized: divide each histogram by its own total count before differencing, so
+        datasets with different total hit counts are still comparable (a shape residual
+        rather than a raw-count residual).
+        """
+        hits1 = self.aggr_data[name1]
+        hits2 = self.aggr_data[name2]
+
+        mask1 = np.isfinite(hits1["eta"]) & np.isfinite(hits1["phi"])
+        mask2 = np.isfinite(hits2["eta"]) & np.isfinite(hits2["phi"])
+
+        counts1, eta_edges, phi_edges = np.histogram2d(
+            hits1["eta"][mask1], hits1["phi"][mask1], bins=bins, range=(self.eta_range, self.phi_range)
+        )
+        counts2, _, _ = np.histogram2d(
+            hits2["eta"][mask2], hits2["phi"][mask2], bins=[eta_edges, phi_edges]
+        )
+
+        if normalized:
+            counts1 = counts1 / counts1.sum()
+            counts2 = counts2 / counts2.sum()
+
+        outname = prefix + "_eta_phi_residual_2d.png" if prefix != "" else "eta_phi_residual_2d.png"
+        outpath = self.output_dir / outname
+        plotting.maia_hist2d_residual(
+            (counts2 - counts1, eta_edges, phi_edges),
+            outpath,
+            r"$\eta$",
+            r"$\phi$",
+            self.eta_range,
+            self.phi_range,
+            cbar_label=f"{name2} - {name1}" + (" (normalized)" if normalized else "")
+        )
+
     def plot_s_eta_2d(self,
         name : str,
         prefix : str = "",

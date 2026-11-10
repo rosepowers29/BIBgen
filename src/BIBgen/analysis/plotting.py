@@ -81,3 +81,39 @@ def maia_hist2d(
             ax=ax,
             mask=mask
         )
+
+def maia_hist2d_residual(
+    residual_histogram : tuple,
+    outpath : str,
+    xlabel : str,
+    ylabel : str,
+    xbounds : tuple | None = None,
+    ybounds : tuple | None = None,
+    cbar_label : str = "Gen - MC"
+):
+    """
+    Plot a 2D residual (difference of two histograms, same binning) with a
+    diverging colormap centered at zero, so excess/deficit regions read as
+    opposite colors instead of sharing one sequential scale with the raw counts.
+    """
+    counts, _, _ = residual_histogram
+    vmax = np.abs(counts).max()
+    vmax = vmax if vmax > 0 else 1.0
+    with MaiaAxis(outpath, bbox_inches="tight") as ax:
+        artists = mh.hist2dplot(
+            residual_histogram,
+            ax=ax,
+            cmap="RdBu_r",
+            # cmin/cmax double as pcolormesh's vmin/vmax inside hist2dplot; passing vmin/vmax
+            # directly in **kwargs would collide with that and raise a duplicate-keyword error.
+            cmin=-vmax,
+            cmax=vmax,
+        )
+        ax.set_xlabel(xlabel)
+        ax.set_ylabel(ylabel)
+        if xbounds is not None:
+            ax.set_xlim(*xbounds)
+        if ybounds is not None:
+            ax.set_ylim(*ybounds)
+        if artists.cbar is not None:
+            artists.cbar.set_label(cbar_label)

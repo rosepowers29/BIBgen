@@ -164,6 +164,7 @@ def main(args):
     analyzer.plot_s_eta_2d("MC", "mc")
     for genname in gen_input:
         analyzer.plot_s_eta_2d(genname, prefix=gen_input[genname][1])
+        analyzer.plot_eta_phi_residual_2d("MC", genname, prefix=gen_input[genname][1])
 
     return 0
 
