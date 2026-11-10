@@ -39,11 +39,13 @@ def main(args):
 
     model = load_empty_model(model_config_path, len(schedule)).to(device)
 
+    phi_std = float(infile["transformation/std"][1]) if args.cylindrical else None
+
     if model.predict_variances:
-        gaussian_nll = DecoupledGaussianNLLLoss(variance_loss_weight=args.variance_loss_weight)
+        gaussian_nll = DecoupledGaussianNLLLoss(variance_loss_weight=args.variance_loss_weight, circular_std=phi_std)
         loss_fn = lambda pred, y, tau: gaussian_nll(pred[0], pred[1], y)
     else:
-        gaussian_nll = GaussianNLLLoss()
+        gaussian_nll = GaussianNLLLoss(circular_std=phi_std)
         loss_fn = lambda pred, y, tau: gaussian_nll(pred, schedule[tau], y)
 
     optimizer = torch.optim.AdamW(model.parameters(), lr=args.lr, weight_decay=1e-2)
@@ -139,4 +141,5 @@ if __name__ == "__main__":
     parser.add_argument("--resume", action="store_true", help="Resume from checkpoint_<tag>.pth (model, optimizer, scaler, epoch, and history) if it exists, continuing to -e/--epochs. If no checkpoint is found, starts fresh. Use this to continue a run that was killed (e.g. hit its walltime) without losing progress")
     parser.add_argument("--init-weights", default=None, help="Warm-start the model from a plain model.state_dict() .pth file (e.g. a prior run's denoiser_<tag>.pth), with a fresh optimizer/epoch-0/history -- unlike --resume, does not carry over optimizer state. Use this to restart past a derailed run from an earlier good checkpoint without inheriting whatever optimizer state caused the derailment. Mutually exclusive with --resume")
     parser.add_argument("--grad-clip", type=float, default=None, help="Clip each step's global gradient norm to this value before the optimizer step, to guard against a single pathological batch derailing training for many subsequent epochs. None (default) disables clipping")
+    parser.add_argument("--cylindrical", action="store_true", help="Treat feature index 1 (phi) as a wrapped angle rather than an unbounded coordinate, so the loss measures phi differences the short way around the circle (e.g. 2*pi - 0.1 and 0.1 are 0.2 apart, not 2*pi - 0.2). Only correct for training data produced with make_training_data.py --cylindrical; has no effect on cartesian-coordinate data")
     print("\nFinished with exit code:", main(parser.parse_args()))

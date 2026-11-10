@@ -35,16 +35,18 @@ def main(args):
     with open(model_template_config_path, "r") as fin:
         model_template = json.load(fin)
 
-    if "predict_variances" in model_template["hyperparameters"] and model_template["hyperparameters"]["predict_variances"]:
-        gaussian_nll = DecoupledGaussianNLLLoss(variance_loss_weight=args.variance_loss_weight)
-        loss_fn = lambda pred, y, tau: gaussian_nll(pred[0], pred[1], y)
-    else:
-        gaussian_nll = GaussianNLLLoss()
-        loss_fn = lambda pred, y, tau: gaussian_nll(pred, schedule[tau], y)
-
     schedule = torch.from_numpy(np.loadtxt(schedule_path)).to(device)
 
     with h5py.File(inpath, "r") as infile:
+        phi_std = float(infile["transformation/std"][1]) if args.cylindrical else None
+
+        if "predict_variances" in model_template["hyperparameters"] and model_template["hyperparameters"]["predict_variances"]:
+            gaussian_nll = DecoupledGaussianNLLLoss(variance_loss_weight=args.variance_loss_weight, circular_std=phi_std)
+            loss_fn = lambda pred, y, tau: gaussian_nll(pred[0], pred[1], y)
+        else:
+            gaussian_nll = GaussianNLLLoss(circular_std=phi_std)
+            loss_fn = lambda pred, y, tau: gaussian_nll(pred, schedule[tau], y)
+
         training_loader = BatchedDataLoader(infile, "training", batch_size=batch_size)
         validation_loader = BatchedDataLoader(infile, "validation", batch_size=batch_size)
 
@@ -87,4 +89,5 @@ if __name__ == "__main__":
     parser.add_argument("-b", "--batch-size", type=int, default=5, help="Batch size")
     parser.add_argument("--variance-loss-weight", type=float, default=1.0, help="Weight on the variance-training loss term (only used when predict_variances=True)")
     parser.add_argument("-o", "--out", default="best.json", help="Output optimal model config, written once all trials are done. The study is saved alongside it as a .db of the same name")
+    parser.add_argument("--cylindrical", action="store_true", help="Treat feature index 1 (phi) as a wrapped angle rather than an unbounded coordinate, so the loss measures phi differences the short way around the circle (e.g. 2*pi - 0.1 and 0.1 are 0.2 apart, not 2*pi - 0.2). Only correct for training data produced with make_training_data.py --cylindrical; has no effect on cartesian-coordinate data")
     print("\nFinished with exit code:", main(parser.parse_args()))

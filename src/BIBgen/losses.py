@@ -20,25 +20,50 @@ class GaussianNLLLoss(nn.Module):
     Loss is computed as -log P(actual | mu, variance) where P is Gaussian.
     """
     
-    def __init__(self, eps=1e-9):
+    def __init__(self, eps=1e-9, circular_std=None, circular_index=1):
+        """
+        Args:
+            circular_std: standard deviation used to normalize the circular feature (e.g.
+                the saved Sphering std for phi), or None if the data has no wrapped feature
+                (e.g. cartesian-coordinate training data, where column `circular_index` is
+                an unbounded x rather than an angle). Differences along `circular_index` are
+                measured in un-normalized (raw) units via this std, wrapped to (-pi, pi], then
+                re-normalized -- so e.g. a raw phi of 2*pi - 0.1 and 0.1 are treated as 0.2
+                apart rather than 2*pi - 0.2.
+            circular_index: feature index holding the wrapped angle, only used when
+                circular_std is not None. Default 1 matches the [energy, phi, s, z, time]
+                cylindrical feature layout (see features.py).
+        """
         super().__init__()
         self.eps = eps
-    
+        self.circular_std = circular_std
+        self.circular_index = circular_index
+
     def forward(self, mu, variance, actual):
         """
         Args:
             mu: predicted means (N, N_SCALAR_FEATURES)
             variance: predicted variances (N, N_SCALAR_FEATURES)
             actual: ground truth (N, N_SCALAR_FEATURES)
-        
+
         Returns:
             mean loss over the batch
         """
         # Add small constant for stability
         variance = variance + self.eps
-        
+
+        diff = actual - mu
+        if self.circular_std is not None:
+            i = self.circular_index
+            raw_diff = diff[..., i] * self.circular_std
+            wrapped_raw_diff = torch.atan2(torch.sin(raw_diff), torch.cos(raw_diff))
+            diff = torch.cat(
+                [diff[..., :i], (wrapped_raw_diff / self.circular_std).unsqueeze(-1), diff[..., i + 1:]],
+                dim=-1,
+            )
+
         # (actual - mu)^2 / variance
-        squared_error = (actual - mu) ** 2
+        squared_error = diff ** 2
         if variance.shape != squared_error.shape:
             variance = variance.unsqueeze(-1).unsqueeze(-1).expand(*variance.shape, *squared_error.shape[-2:])
         normalized_error = (squared_error / variance)
@@ -69,9 +94,9 @@ class DecoupledGaussianNLLLoss(nn.Module):
     and vice versa, avoiding the double/conflicting-signal problem.
     """
 
-    def __init__(self, eps=1e-6, variance_loss_weight=1.0):
+    def __init__(self, eps=1e-6, variance_loss_weight=1.0, circular_std=None, circular_index=1):
         super().__init__()
-        self.nll = GaussianNLLLoss(eps=eps)
+        self.nll = GaussianNLLLoss(eps=eps, circular_std=circular_std, circular_index=circular_index)
         self.variance_loss_weight = variance_loss_weight
 
     def forward(self, mu, variance, actual):
