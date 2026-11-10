@@ -20,7 +20,7 @@ class GaussianNLLLoss(nn.Module):
     Loss is computed as -log P(actual | mu, variance) where P is Gaussian.
     """
     
-    def __init__(self, eps=1e-6):
+    def __init__(self, eps=1e-9):
         super().__init__()
         self.eps = eps
     
