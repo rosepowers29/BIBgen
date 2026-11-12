@@ -77,6 +77,17 @@ The above script can be submitted to OSPool.
 condor_submit generation/submit_generate_like.sub
 ```
 
+To generate any number of events instead, with sizes drawn from the training distribution, first cache that distribution and the normalisation once, then generate from the cache. This writes `gen.hdf5` in physical units (E in GeV, phi, s and z in mm).
+```bash
+uv run generation/write_generator_cache.py ../data/raw_cyl_phipi4_large.hdf5 -o generation/generator_cache.npz
+uv run generation/from_cache.py denoiser.pth ../config/models/mlp_denoiser.json ../config/noise_schedules/noise_schedule.csv generation/generator_cache.npz -o gen.hdf5 -n 1000
+```
+
+This can also be submitted to OSPool, or to Perlmutter with `generation/submit_from_cache_perlmutter.sh`; see `examples/README.md`.
+```bash
+condor_submit generation/submit_from_cache.sub
+```
+
 ## Analysis
 
 Plot kinematic distributions of the test data and generated data.

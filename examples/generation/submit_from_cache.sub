@@ -1,0 +1,44 @@
+universe = container
+container_image = /cvmfs/singularity.opensciencegrid.org/htc/pytorch:2.3.1-cuda11.8
+
+log = job_from_cache_$(tag)_$(Cluster)_$(Process).log
+error = job_from_cache_$(tag)_$(Cluster)_$(Process).err
+output = job_from_cache_$(tag)_$(Cluster)_$(Process).out
+
+# Generator cache from write_generator_cache.py (any path; the job sees only its file name, since
+# condor transfers it into the sandbox), and events per job (~100 events/minute on one GPU)
+cache = generator_cache.npz
+nevents = 1000
+
+# bash script calling your executable along with path variables and appropriate environment setup
+executable = run_from_cache.sh
+arguments = denoiser_$(tag).pth $(config) $(tag) $(schedule) $Fnx(cache) $(nevents)
+
+# REPLACE with "Long" if job is predicted to take over 40 hrs
++JobDurationCategory = "Medium"
+
+#----------------RESOURCE REQUESTS-------------------#
+
+gpus_minimum_capability = 7.5
+request_gpus = 1
+request_cpus = 1
+
+# Blacklist Notre Dame GPUs, comment out later
+requirements = (GLIDEIN_ResourceName =!= "ND-CAML-GPU-CE1")
+max_retries = 3
+
+#change as appropriate
+request_memory = 2GB
+request_disk = 4GB
+
+#--------------FILE TRANSFER HANDLING-----------------#
+
+# REPLACE with the executable in your submit.sh script and any input files
+transfer_input_files = ../../src, from_cache.py, ../../config, $(cache), ../training/denoiser_$(tag).pth
+
+# REPLACE with output files
+transfer_output_files = $(tag)_gen.hdf5
+should_transfer_files = YES
+
+# REPLACE with however many jobs you are queuing
+queue config,tag,schedule from generate_experiments.txt
