@@ -231,8 +231,8 @@ private
 
 # Test size files
 *test_sizes*.csv
-
 *.csv
+*.npz
 
 # Slop
 CLAUDE.md

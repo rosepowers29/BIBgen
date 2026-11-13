@@ -214,6 +214,78 @@ same ``REPO=`` (required), ``ACCOUNT=`` (required, NERSC charge account), ``MAIL
 ``RUNTIME=`` (default ``06:00:00``) settings and ``config tag schedule`` rows as the Della version
 above.
 
+### Arbitrary numbers of events
+
+``generate_like.py`` reproduces the test-event sizes one for one, which suits a like-for-like
+comparison but caps the output at the size of the test set. To generate any number of events,
+first write a small generator cache from the raw training file, once:
+
+```bash
+python write_generator_cache.py [raw_training_file.hdf5] -o generator_cache.npz
+```
+
+The cache holds the sorted hit counts of every ``training`` and ``validation`` event (read from
+dataset shapes only, so no hit data is loaded), the sphering ``mu``/``std``, and the ``log_energy``
+flag. Files that predate the ``log_energy`` attribute, such as ``raw_cyl_phipi4_large.hdf5``, have
+it inferred from the sign of the energy mean (``ln(E)`` of sub-GeV hits is negative), with a
+warning. Prefer the raw file to the diffused one; the cache is the same and the raw file is far
+smaller. Generation jobs then need only the ``.npz``, not the training data.
+
+**The cache must come from the raw file the model's training data was diffused from** (e.g.
+``raw_cyl_phipi4_large_logE.hdf5`` for a model trained on ``diffused_cyl_phipi4_large_logE.hdf5``).
+The model outputs sphered values, and the cache's ``mu``/``std`` and ``log_energy`` turn them into
+physical units, so a cache from a different parameterisation silently produces wrong energies.
+Nothing in a ``.pth`` records what it was trained on, so this cannot be checked automatically.
+Keep one cache per training file and name it after that file.
+
+```bash
+python from_cache.py [model.pth] [model_config] [noise_schedule] [generator_cache.npz] -o [tag]_gen.hdf5 -n [nevents]
+```
+
+Each event's size is drawn from the cached hit-count distribution (by interpolating its empirical
+quantile function, so sizes stay within the training range). As with ``generate_like.py``,
+``noise_schedule`` must be the one the model was trained with. ``-n`` defaults to 1000; expect
+roughly 100 events a minute on one GPU. Events are generated and written one at a time, so memory
+does not grow with ``-n``.
+
+The output differs from ``<tag>_like.hdf5`` in two ways:
+
+- **It is in physical units, not sphered.** Each event is ``(E [GeV], phi, s [mm], z [mm])``,
+  with the sphering undone and ``ln(E)`` exponentiated when the cache's ``log_energy`` is set.
+  The file is stamped with ``sphered=False`` and ``log_energy=False`` attributes, which
+  ``plot_comparison.py`` reads so it does not transform the events a second time.
+- **Event IDs are ``evt_0 ... evt_<n-1>``** and do not correspond to test events.
+
+``submit_from_cache.sub`` (OSPool) and ``./submit_from_cache_perlmutter.sh generate_experiments.txt``
+(Perlmutter) submit it exactly like their ``generate_like`` counterparts, from the same
+``config tag schedule`` experiments file and with the same settings, options and dependency
+handling. Each row writes ``<tag>_gen.hdf5``. Instead of a size file they take a cache and an
+event count per job.
+
+On OSPool these are macros at the top of ``submit_from_cache.sub``: ``cache = generator_cache.npz``
+(any path; Condor transfers the file and the job uses its file name) and ``nevents = 1000``.
+Override them on the command line:
+
+```bash
+condor_submit -append "nevents = 5000" submit_from_cache.sub
+```
+
+On Perlmutter they are two more optional settings in the experiments file, alongside ``REPO=`` and
+``ACCOUNT=``. They apply to every row, and are read only from the file (not from the environment):
+
+```
+REPO=/pscratch/sd/<u>/<username>/BIBgen
+ACCOUNT=<nersc_account>
+CACHE=generator_cache.npz     # default; relative paths are relative to $REPO/examples/generation
+NEVENTS=5000                  # events per job, default 1000
+
+# config                      tag       schedule (same as training)
+equivariant_denoiser.json     v13       noise_schedule.csv
+```
+
+There is one job per experiments row. To get more events for a tag, raise ``nevents`` rather than
+listing the tag twice: both jobs would write ``<tag>_gen.hdf5`` with the same event IDs.
+
 ## Analysis
 
 ```bash
@@ -226,7 +298,10 @@ against the same MC on the same axes.
 
 Output directory defaults to ``plots/<tag>``, inferred from the first generated file's name;
 ``-t/--tag`` overrides it. Whether the energy feature needs exponentiating back from ``ln(E)`` is
-auto-detected from the MC file; override with ``-l {auto,yes,no}`` if needed.
+auto-detected from the MC file; override with ``-l {auto,yes,no}`` if needed. Generated files
+from ``from_cache.py`` are already in physical units and say so in their file attributes; they are
+loaded as they are, and ``-l`` applies only to the MC file and to ``generate_like.py`` output.
+Both ``<tag>_like.hdf5`` and ``<tag>_gen.hdf5`` names give the tag ``<tag>``.
 
 ``wasserstein_distances.csv`` is written with one row per (generated dataset, variable). Its
 ``tag`` column is the experiment tag inferred from each generated file's name, so the rows still

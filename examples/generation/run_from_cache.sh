@@ -7,6 +7,7 @@ export PYTHONPATH=$PYTHONPATH:/opt/conda/lib/python3.10/site-packages
 pip install h5py
 
 # REPLACE with your executable
-python generate_demo.py denoiser_v4.pth noise_schedule.csv -c -n 10 -s 5077 # mean number of barrel hits in pi/2 slice
-
+# Arguments: model.pth config tag schedule cache nevents
+export PYTHONPATH=$PWD/src:$PYTHONPATH
+python from_cache.py $1 config/models/$2 config/noise_schedules/$4 $5 -o $3_gen.hdf5 -n $6
 # END
