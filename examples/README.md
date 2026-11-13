@@ -229,7 +229,14 @@ dataset shapes only, so no hit data is loaded), the sphering ``mu``/``std``, and
 flag. Files that predate the ``log_energy`` attribute, such as ``raw_cyl_phipi4_large.hdf5``, have
 it inferred from the sign of the energy mean (``ln(E)`` of sub-GeV hits is negative), with a
 warning. Prefer the raw file to the diffused one; the cache is the same and the raw file is far
-smaller. Generation jobs then need only the ``.npz``, not the training data:
+smaller. Generation jobs then need only the ``.npz``, not the training data.
+
+**The cache must come from the raw file the model's training data was diffused from** (e.g.
+``raw_cyl_phipi4_large_logE.hdf5`` for a model trained on ``diffused_cyl_phipi4_large_logE.hdf5``).
+The model outputs sphered values, and the cache's ``mu``/``std`` and ``log_energy`` turn them into
+physical units, so a cache from a different parameterisation silently produces wrong energies.
+Nothing in a ``.pth`` records what it was trained on, so this cannot be checked automatically.
+Keep one cache per training file and name it after that file.
 
 ```bash
 python from_cache.py [model.pth] [model_config] [noise_schedule] [generator_cache.npz] -o [tag]_gen.hdf5 -n [nevents]
