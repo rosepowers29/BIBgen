@@ -27,7 +27,8 @@ def main(args):
     print(f"Using {device} device")
 
     schedule = torch.from_numpy(np.loadtxt(schedule_path)).to(device)
-    test_event_ids, sizes = np.loadtxt(size_path, delimiter=",", unpack=True, dtype=str)
+    # ndmin=2 so a single-row size file still unpacks to 1-element arrays rather than scalars
+    test_event_ids, sizes = np.loadtxt(size_path, delimiter=",", unpack=True, dtype=str, ndmin=2)
     sizes = sizes.astype(int)
 
     model = load_empty_model(model_config_path, len(schedule)).to(device)
