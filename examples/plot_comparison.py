@@ -17,6 +17,9 @@ WASSERSTEIN_2D_PAIRS = (("eta", "phi"), ("s", "z"), ("eta", "s"), ("eta", "z"),
 def none_or_int(value):
     return None if value.lower() == "none" else int(value)
 
+def none_or_float(value):
+    return None if value.lower() == "none" else float(value)
+
 def infer_tag(genpath):
     stem = os.path.splitext(os.path.basename(genpath))[0]
     return re.sub(r"_like$", "", stem)
@@ -91,6 +94,34 @@ def write_wasserstein_distances_2d(analyzer, reference_name, tags, outdir,
 
     return distances
 
+def drop_diverged_events(events, name, max_sphered):
+    """
+    Removes generated events that diverged during sampling: any non-finite value, or (if
+    max_sphered is not None) any |x| > max_sphered in sphered units. Such events would
+    otherwise overflow in the exp/expm1 inverse transform and poison the plots and
+    Wasserstein distances. Prints how many were dropped so the divergence rate can be
+    tracked across checkpoints.
+    """
+    kept, nonfinite, out_of_range = {}, [], []
+    for event_id, x in events.items():
+        if not np.isfinite(x).all():
+            nonfinite.append(event_id)
+        elif max_sphered is not None and x.size > 0 and np.abs(x).max() > max_sphered:
+            out_of_range.append(event_id)
+        else:
+            kept[event_id] = x
+
+    n_dropped = len(nonfinite) + len(out_of_range)
+    if n_dropped > 0:
+        print(f"Warning: dropped {n_dropped} / {len(events)} ({100 * n_dropped / len(events):.1f}%) "
+              f"diverged events from '{name}': {len(nonfinite)} non-finite"
+              + (f", {len(out_of_range)} with |x| > {max_sphered} (sphered)" if max_sphered is not None else ""))
+        print(f"  non-finite: {' '.join(nonfinite) if nonfinite else '-'}")
+        print(f"  out-of-range: {' '.join(out_of_range) if out_of_range else '-'}")
+    else:
+        print(f"No diverged events in '{name}' ({len(events)} events)")
+    return kept
+
 def main(args):
     mcpath = args.mc_file
     gen_input = {}
@@ -139,6 +170,7 @@ def main(args):
     for name in gen_input:
         with h5py.File(gen_input[name][0], "r") as genfile:
             gendata[name] = {event_id : np.array(genfile[event_id]) for event_id in genfile.keys()}
+        gendata[name] = drop_diverged_events(gendata[name], name, args.max_sphered)
 
     print(f"Writing plots to {outpath}")
 
@@ -181,6 +213,9 @@ if __name__ == "__main__":
         help="Whether the energy feature is ln(E). 'auto' reads the flag stored in the MC file.")
     parser.add_argument("--log-time", choices=["auto", "yes", "no"], default="auto",
         help="Whether the time feature is ln(1+t). 'auto' reads the flag stored in the MC file.")
+    parser.add_argument("--max-sphered", type=none_or_float, default=10.0,
+        help="Drop generated events with any |value| above this in sphered units (diverged "
+             "samples); non-finite events are always dropped. 'none' drops only non-finite events.")
     parser.add_argument("--wasserstein-2d-samples", type=none_or_int, default=200,
         help="Per-dataset subsample cap for the 2D (eta-phi, s-z) Wasserstein distances, or "
              "'none' to disable subsampling -- wasserstein_distance_nd solves an exact transport "
