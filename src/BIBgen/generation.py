@@ -74,5 +74,9 @@ def generate_sphered(
                 "x max", current_event.abs().max().item(),
                 "x mean", current_event.abs().mean().item(),
                 flush=True)
+                print("    per-column |x| max", current_event.abs().amax(dim=0).tolist(),
+                "| mu max", mu.abs().amax(dim=0).tolist(),
+                "| var max", (var.amax(dim=0).tolist() if var.dim() > 0 else var.item()),
+                flush=True)
 
     return current_event
