@@ -14,7 +14,7 @@ WASSERSTEIN_VARIABLES = ("energy", "phi", "eta", "s", "z")
 
 def infer_tag(genpath):
     stem = os.path.splitext(os.path.basename(genpath))[0]
-    return re.sub(r"_like$", "", stem)
+    return re.sub(r"_(like|gen)$", "", stem)
 
 def write_wasserstein_distances(analyzer, reference_name, tags, outdir):
     """
@@ -80,10 +80,16 @@ def main(args):
             print(f"Warning: --log-energy={args.log_energy} overrides the log_energy={stored_log_energy} "
                   f"flag stored in {mcpath}")
 
+    # Generated files from generate_like.py carry no attributes and are sphered with the MC file's
+    # energy parameterisation. from_cache.py writes physical units and says so via file attributes.
     gendata = {}
+    gen_sphered = {}
+    gen_log_energy = {}
     for name in gen_input:
         with h5py.File(gen_input[name][0], "r") as genfile:
             gendata[name] = {event_id : np.array(genfile[event_id]) for event_id in genfile.keys()}
+            gen_sphered[name] = bool(genfile.attrs.get("sphered", True))
+            gen_log_energy[name] = bool(genfile.attrs.get("log_energy", log_energy))
 
     print(f"Writing plots to {outpath}")
 
@@ -97,7 +103,8 @@ def main(args):
     )
     analyzer.load_from_dict("MC", mcdata, is_sphered=False, exponentiate_energy=log_energy)
     for name in gendata:
-        analyzer.load_from_dict(name, gendata[name], sphering=Sphering(mu, std), exponentiate_energy=log_energy)
+        analyzer.load_from_dict(name, gendata[name], is_sphered=gen_sphered[name], sphering=Sphering(mu, std),
+                                exponentiate_energy=gen_log_energy[name])
 
     for genname in gen_input:
         analyzer.plot_kinematics_1d("MC", genname, prefix=gen_input[genname][1], normalized=False, log_scale=False)

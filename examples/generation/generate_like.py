@@ -6,7 +6,6 @@ import h5py
 import torch
 import numpy as np
 
-from BIBgen.models import EquivariantDenoiser
 from BIBgen.generation import generate_sphered
 from BIBgen.training import load_empty_model
 
