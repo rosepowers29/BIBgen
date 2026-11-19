@@ -92,6 +92,10 @@ def main(args):
     if not args.replace and args.n_per_overlay > len(events):
         raise ValueError(f"Cannot overlay {args.n_per_overlay} events without replacement from {len(events)}")
 
+    if args.local_phi and args.slice_mode == "population":
+        warnings.warn("--local-phi with --slice-mode population: slices have different phi widths, so local phi "
+                      "ranges differ between slices and the model is not told which width it is generating.")
+
     edges = make_slice_edges(events, args.n_slices, args.slice_mode, args.phi_window)
     split_of_slice = assign_slices_to_splits(args.n_slices, fractions)
     for isplit, split in enumerate(SPLITS):
@@ -113,6 +117,7 @@ def main(args):
     slicing_group.attrs["n_per_overlay"] = args.n_per_overlay
     slicing_group.attrs["n_overlays"] = args.n_overlays
     slicing_group.attrs["replace"] = args.replace
+    slicing_group.attrs["local_phi"] = args.local_phi
     slicing_group.attrs["source_file"] = inpath
     if args.seed is not None:
         slicing_group.attrs["seed"] = args.seed
@@ -132,6 +137,9 @@ def main(args):
         for islice in range(args.n_slices):
             split = SPLITS[split_of_slice[islice]]
             data = np.concatenate([binned[ievt][islice] for ievt in chosen])
+            phi_center = 0.5 * (edges[islice] + edges[islice + 1])
+            if args.local_phi:
+                data[:, PHI] -= phi_center
 
             # Written unsphered for now; training/validation are sphered in place below
             slice_group = split_groups[split].create_group(f"slice_{islice_out}")
@@ -139,6 +147,7 @@ def main(args):
             slice_group.attrs["overlay"] = ioverlay
             slice_group.attrs["phi_slice"] = islice
             slice_group.attrs["phi_range"] = edges[islice:islice + 2]
+            slice_group.attrs["phi_center"] = phi_center
             islice_out += 1
 
             if split == "training":
@@ -193,6 +202,10 @@ if __name__ == "__main__":
                         help="Slices span [-p, p]. Should match the -p used for make_training_data.py")
     parser.add_argument("-s", "--split", default="0.7,0.2,0.1",
                         help="training,validation,test fractions of phi slices; slices are interleaved around phi")
+    parser.add_argument("--local-phi", action="store_true",
+                        help="Store phi relative to each slice's center (center saved in the slice's phi_center attr) so slices at "
+                             "different phi positions are exchangeable. Recommended with --slice-mode width, since train/val/test "
+                             "are split by phi position")
     parser.add_argument("--replace", action="store_true", help="Draw source events within an overlay with replacement (default: without)")
     parser.add_argument("--seed", type=int, default=None, help="RNG seed for reproducibility")
     print("\nFinished with exit code:", main(parser.parse_args()))
